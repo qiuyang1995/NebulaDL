@@ -1,0 +1,1559 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NebulaDL - 通用视频下载器</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a;
+            /* Slate 900 */
+            color: #e2e8f0;
+            /* Slate 200 */
+        }
+
+        /* 自定义滚动条 */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #1e293b;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
+        }
+
+        .glass-panel {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .pro-gradient-text {
+            background: linear-gradient(to right, #facc15, #fbbf24);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .btn-pro {
+            background: linear-gradient(135deg, #ca8a04 0%, #eab308 100%);
+            transition: all 0.3s ease;
+        }
+
+        .btn-pro:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(234, 179, 8, 0.3);
+        }
+
+        /* 动画类 */
+        .fade-in {
+            animation: fadeIn 0.5s ease-out forwards;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+    </style>
+</head>
+
+<body class="flex h-screen overflow-hidden">
+
+    <!-- 1. 侧边导航栏 (Sidebar) -->
+    <aside class="w-64 bg-slate-900 border-r border-slate-800 flex flex-col justify-between">
+        <div>
+            <!-- Logo -->
+            <div class="p-6 flex items-center gap-3">
+                <div class="w-8 h-8 bg-red-600 rounded-lg flex items-center justify-center">
+                    <i class="fa-brands fa-youtube text-white text-lg"></i>
+                </div>
+                <span class="text-xl font-bold text-white tracking-tight">Nebula<span
+                        class="font-light text-slate-400">DL</span></span>
+            </div>
+
+            <!-- 导航菜单 -->
+            <nav class="px-4 space-y-2 mt-4">
+                <a href="#"
+                    class="flex items-center gap-3 px-4 py-3 bg-slate-800 text-white rounded-xl transition-colors">
+                    <i class="fa-solid fa-download text-blue-400"></i>
+                    <span class="font-medium">单个下载</span>
+                </a>
+
+                <button onclick="handleBatchClick()"
+                    class="w-full flex items-center justify-between px-4 py-3 text-slate-400 hover:text-white hover:bg-slate-800/50 rounded-xl transition-all group">
+                    <div class="flex items-center gap-3">
+                        <i class="fa-solid fa-layer-group group-hover:text-yellow-400 transition-colors"></i>
+                        <span>批量下载</span>
+                    </div>
+                </button>
+            </nav>
+        </div>
+
+        <!-- 用户状态 -->
+        <div class="p-4 border-t border-slate-800">
+            <div class="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                <div class="flex items-center gap-3 mb-3">
+                    <div class="w-8 h-8 rounded-full bg-slate-600 flex items-center justify-center text-xs">User</div>
+                    <div>
+                        <div class="text-sm font-medium text-white">Free Plan</div>
+                        <div class="text-xs text-slate-400">本地下载</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- 2. 主内容区 (Main Content) -->
+    <main class="flex-1 flex flex-col bg-slate-950 relative">
+
+        <!-- 顶部输入栏 -->
+        <header
+            class="h-20 border-b border-slate-800 flex items-center px-8 justify-between bg-slate-900/50 backdrop-blur-md sticky top-0 z-10">
+            <div class="flex-1 max-w-3xl flex gap-4">
+                <div class="relative flex-1 group">
+                    <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                        <i
+                            class="fa-solid fa-link text-slate-500 group-focus-within:text-blue-400 transition-colors"></i>
+                    </div>
+                    <input type="text" id="urlInput" placeholder="粘贴视频链接 (支持 YouTube, B站, 抖音及全球 1000+ 网站)..."
+                        class="w-full bg-slate-800 text-white pl-10 pr-4 py-3 rounded-xl border border-slate-700 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all placeholder-slate-500">
+                </div>
+                <button onclick="analyzeVideo()"
+                    class="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-xl font-medium transition-colors shadow-lg shadow-blue-900/20 flex items-center gap-2">
+                    <i class="fa-solid fa-magnifying-glass"></i> 解析
+                </button>
+            </div>
+
+            <div class="flex items-center gap-4">
+                <!-- 【修改点】 绑定 onclick 事件到 showSettingsModal -->
+                <button onclick="showSettingsModal()"
+                    class="w-10 h-10 rounded-full bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700 transition-colors flex items-center justify-center">
+                    <i class="fa-solid fa-gear"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- 内容区域 -->
+        <div class="flex-1 overflow-y-auto p-8">
+
+            <!-- 空状态 (默认显示) -->
+            <div id="emptyState" class="flex flex-col items-center justify-center h-full text-slate-500 space-y-4">
+                <div
+                    class="w-24 h-24 bg-slate-900 rounded-full flex items-center justify-center mb-4 border border-slate-800">
+                    <i class="fa-solid fa-cloud-arrow-down text-4xl text-slate-600"></i>
+                </div>
+                <h3 class="text-xl font-medium text-slate-300">准备好下载了吗？</h3>
+                <p class="text-sm max-w-md text-center">完美支持 YouTube, Bilibili, TikTok 及全球 1000+ 主流平台。
+                    支持最高 8K 原画、批量下载与并发加速（本地处理）。</p>
+            </div>
+
+            <!-- 解析结果卡片 (隐藏) -->
+            <div id="resultCard" class="hidden fade-in max-w-4xl mx-auto">
+                <div class="glass-panel rounded-2xl p-6 flex gap-6 items-start">
+                    <!-- 缩略图 -->
+                    <div class="w-64 aspect-video bg-slate-800 rounded-lg overflow-hidden relative group shadow-2xl">
+                        <img id="thumbImg" src="" alt="Thumbnail" role="button" tabindex="0"
+                            onclick="openImagePreview(this.src)"
+                            class="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity cursor-zoom-in">
+                        <div id="durationBadge"
+                            class="absolute bottom-2 right-2 bg-black/80 px-2 py-1 rounded text-xs text-white font-mono">
+                            00:00</div>
+                    </div>
+
+                    <!-- 视频信息与选项 -->
+                    <div class="flex-1">
+                        <h2 id="videoTitle" class="text-xl font-bold text-white mb-2 leading-tight line-clamp-2">-</h2>
+                        <div class="flex items-center gap-3 text-sm text-slate-400 mb-6">
+                            <span id="viewCount" class="flex items-center gap-1"><i class="fa-solid fa-eye"></i>
+                                -</span>
+                            <span>•</span>
+                            <span id="uploaderName" class="flex items-center gap-1"><i class="fa-solid fa-user"></i>
+                                -</span>
+                            <!-- Site Indicator -->
+                            <span id="siteNameContainer"
+                                class="hidden items-center gap-2 pl-3 border-l border-slate-700 ml-1">
+                                <i class="fa-solid fa-globe text-xs"></i>
+                                <span id="siteNameText" class="font-medium text-slate-300"></span>
+                            </span>
+                        </div>
+
+                        <!-- 下载选项表格 -->
+                        <div id="formatTable"
+                            class="bg-slate-900/50 rounded-xl border border-slate-800 overflow-hidden">
+                            <!-- JS 动态渲染 -->
+                        </div>
+
+                        
+                <!-- 下载队列展示 -->
+                <div id="downloadQueueSection" class="mt-8">
+                    <h3 class="text-lg font-semibold text-white mb-4">下载队列</h3>
+                    <div id="downloadQueue" class="space-y-3">
+                        <!-- 动态添加的任务会在这里 -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 3. 设置页面弹窗 (Settings Modal) -->
+    <div id="settingsModal"
+        class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center opacity-0 transition-opacity duration-300">
+        <div
+            class="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg p-6 shadow-2xl transform scale-95 transition-transform duration-300 flex flex-col max-h-[90vh] overflow-hidden">
+            <!-- 标题栏 -->
+            <div class="flex justify-between items-center mb-6 border-b border-slate-800 pb-4 flex-shrink-0">
+                <h3 class="text-xl font-bold text-white flex items-center gap-2">
+                    <i class="fa-solid fa-sliders text-blue-400"></i> 设置
+                </h3>
+                <button onclick="closeSettingsModal()" class="text-slate-400 hover:text-white transition-colors">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <!-- 设置表单 -->
+            <div class="space-y-5 flex-1 overflow-y-auto min-h-0">
+                <!-- 下载路径 -->
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-2">默认下载路径</label>
+                    <div class="flex gap-2">
+                        <input type="text" id="settingDownloadPath" readonly value="C:/Users/Downloads"
+                            class="flex-1 bg-slate-800 text-slate-300 px-4 py-2.5 rounded-xl border border-slate-700 text-sm focus:outline-none">
+                        <button onclick="selectDownloadFolder()"
+                            class="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2.5 rounded-xl text-sm transition-colors whitespace-nowrap">
+                            <i class="fa-regular fa-folder-open mr-1"></i> 浏览
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 自动创建文件夹 -->
+                <div
+                    class="flex items-center justify-between border border-slate-700/50 rounded-xl p-3 bg-slate-800/30">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 uppercase mb-1"
+                            for="settingCreateFolder">智能归档 (Smart Archive)</label>
+                        <div class="text-[10px] text-slate-400">自动创建视频标题文件夹，归档视频与封面</div>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="settingCreateFolder" class="sr-only peer">
+                        <div
+                            class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600">
+                        </div>
+                    </label>
+                </div>
+
+                <!-- Cookie 管理面板 -->
+                <div class="bg-slate-800/50 rounded-xl border border-slate-700 p-4">
+                    <div class="flex justify-between items-center mb-3">
+                        <label class="block text-xs font-semibold text-slate-400 uppercase">Cookie (cookies.txt) 按域名</label>
+                        <button onclick="showCookieGuideModal()"
+                            class="text-[10px] text-blue-400 hover:text-blue-300 hover:underline">如何获取?</button>
+                    </div>
+
+                    <div class="text-[10px] text-slate-500 leading-relaxed mb-3">
+                        用于抖音/TikTok 等需要新鲜 Cookie 的站点。按域名保存映射，下载时自动匹配。
+                    </div>
+
+                    <!-- Cookie 列表 -->
+                    <div id="cookieListContainer" class="space-y-2 mb-4 max-h-32 overflow-y-auto">
+                        <div class="text-xs text-slate-500 text-center py-2 italic" id="noCookieText">暂无配置 Cookie，部分站点可能无法解析/下载。</div>
+                    </div>
+
+                    <!-- 添加区域 -->
+                    <div class="pt-2 border-t border-slate-700 space-y-2">
+                        <input type="text" id="cookieDomainInput" placeholder="输入域名或链接 (如 douyin.com 或 https://www.douyin.com/video/...)"
+                            class="w-full bg-slate-900 text-slate-300 text-xs px-3 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500 font-mono placeholder-slate-600" />
+                        <button onclick="importCookieForDomain()"
+                            class="w-full bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 hover:text-blue-300 text-xs px-3 py-2 rounded-lg transition-colors border border-blue-600/30 border-dashed flex items-center justify-center gap-1">
+                            <i class="fa-solid fa-file-arrow-up"></i> 选择 cookies.txt 并保存
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 并发设置 -->
+                <div>
+                    <div class="flex justify-between items-center mb-2">
+                        <label class="block text-xs font-semibold text-slate-500 uppercase">并发下载数 (Max Threads)</label>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <input type="range" id="settingThreads" min="1" max="16" value="1"
+                            class="flex-1 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                            oninput="document.getElementById('threadVal').innerText = this.value">
+                        <span id="threadVal" class="text-sm font-mono text-white w-6">1</span>
+                    </div>
+                    <p class="text-[10px] text-slate-500 mt-1">建议 1-16。并发越高占用越多带宽与 CPU。</p>
+                </div>
+
+                <!-- 代理设置 -->
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-2">HTTP 代理 (Proxy)</label>
+                    <input type="text" id="settingProxy" placeholder="http://127.0.0.1:7890"
+                        class="w-full bg-slate-800 text-white px-4 py-2.5 rounded-xl border border-slate-700 focus:border-blue-500 focus:outline-none transition-colors text-sm font-mono placeholder-slate-600">
+                </div>
+
+            </div>
+
+            <!-- 底部按钮 -->
+            <div class="pt-6 mt-6 border-t border-slate-800 flex justify-end gap-3 flex-shrink-0">
+                <button onclick="closeSettingsModal()"
+                    class="px-5 py-2.5 rounded-xl text-slate-400 hover:text-white text-sm font-medium transition-colors">
+                    取消
+                </button>
+                <button onclick="saveSettings()"
+                    class="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2.5 rounded-xl font-medium shadow-lg shadow-blue-900/20 transition-colors">
+                    保存配置
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 4. 批量下载弹窗 (Batch Download Modal) -->
+    <div id="batchModal"
+        class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center opacity-0 transition-opacity duration-300">
+        <div
+            class="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl p-6 shadow-2xl transform scale-95 transition-transform duration-300 flex flex-col max-h-[90vh]">
+            <!-- 标题栏 -->
+            <div class="flex justify-between items-center mb-6 border-b border-slate-800 pb-4 flex-shrink-0">
+                <h3 class="text-xl font-bold text-white flex items-center gap-2">
+                    <i class="fa-solid fa-layer-group text-yellow-500"></i> 批量下载
+                </h3>
+                <button onclick="closeBatchModal()" class="text-slate-400 hover:text-white transition-colors">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <!-- 内容 -->
+            <div class="space-y-5 flex-1 overflow-y-auto min-h-0">
+                <!-- URL 输入 -->
+                <div class="flex flex-col h-full">
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-2">视频链接 (每行一个)</label>
+                    <textarea id="batchUrls" placeholder="https://...\nhttps://..."
+                        class="w-full flex-1 bg-slate-800 text-white px-4 py-3 rounded-xl border border-slate-700 focus:border-yellow-500 focus:outline-none transition-colors text-sm font-mono placeholder-slate-600 min-h-[200px] resize-none"></textarea>
+                </div>
+
+                <!-- 格式选择 -->
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-2">下载格式</label>
+                    <select id="batchFormat"
+                        class="w-full bg-slate-800 text-white px-4 py-2.5 rounded-xl border border-slate-700 focus:border-yellow-500 focus:outline-none transition-colors text-sm appearance-none">
+                        <option value="best">最佳质量 (Best Video + Audio)</option>
+                        <option value="audio">仅音频 (Audio Only)</option>
+                        <option value="1080p">1080P MP4</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- 底部按钮 -->
+            <div class="pt-6 mt-6 border-t border-slate-800 flex justify-end gap-3 flex-shrink-0">
+                <button onclick="closeBatchModal()"
+                    class="px-5 py-2.5 rounded-xl text-slate-400 hover:text-white text-sm font-medium transition-colors">
+                    取消
+                </button>
+                <button onclick="startBatchDownload()"
+                    class="bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-500 hover:to-orange-500 text-white px-8 py-2.5 rounded-xl font-bold shadow-lg shadow-orange-900/20 transition-all transform hover:-translate-y-0.5">
+                    <i class="fa-solid fa-rocket mr-2"></i> 开始批量任务
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 6. Cookie 获取指南弹窗 (Cookie Guide Modal) -->
+    <div id="cookieGuideModal"
+        class="fixed inset-0 bg-black/90 backdrop-blur-sm z-[60] hidden flex items-center justify-center opacity-0 transition-opacity duration-300">
+        <div
+            class="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl transform scale-95 transition-transform duration-300 relative">
+            <button onclick="closeCookieGuideModal()"
+                class="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors">
+                <i class="fa-solid fa-xmark text-lg"></i>
+            </button>
+
+            <h3 class="text-xl font-bold text-white mb-6 flex items-center gap-2">
+                <i class="fa-solid fa-cookie-bite text-yellow-500"></i> Cookie 获取指南
+            </h3>
+
+            <div class="space-y-6 relative">
+                <!-- Step 1 -->
+                <div class="flex gap-4">
+                    <div
+                        class="flex-shrink-0 w-8 h-8 rounded-full bg-blue-900/30 text-blue-400 flex items-center justify-center font-bold text-sm border border-blue-500/20 z-10 bg-slate-900">
+                        1</div>
+                    <div>
+                        <h4 class="text-sm font-bold text-slate-200 mb-1">安装浏览器扩展</h4>
+                        <p class="text-xs text-slate-400 leading-relaxed">
+                            推荐使用 Chrome/Edge 扩展 <span class="text-white font-mono bg-slate-800 px-1 rounded">Get
+                                cookies.txt LOCALLY</span>。
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Step 2 -->
+                <div class="flex gap-4">
+                    <div
+                        class="flex-shrink-0 w-8 h-8 rounded-full bg-blue-900/30 text-blue-400 flex items-center justify-center font-bold text-sm border border-blue-500/20 z-10 bg-slate-900">
+                        2</div>
+                    <div>
+                        <h4 class="text-sm font-bold text-slate-200 mb-1">登录目标网站</h4>
+                        <p class="text-xs text-slate-400 leading-relaxed">
+                            打开浏览器访问 Bilibili 或 YouTube，并确保已登录您的<span class="text-yellow-500">会员账号</span>。
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Step 3 -->
+                <div class="flex gap-4">
+                    <div
+                        class="flex-shrink-0 w-8 h-8 rounded-full bg-blue-900/30 text-blue-400 flex items-center justify-center font-bold text-sm border border-blue-500/20 z-10 bg-slate-900">
+                        3</div>
+                    <div>
+                        <h4 class="text-sm font-bold text-slate-200 mb-1">导出 Cookie 文件</h4>
+                        <p class="text-xs text-slate-400 leading-relaxed">
+                            点击扩展图标，选择 <span class="text-white">"Export"</span>，将生成的 txt 文件保存到电脑。
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Step 4 -->
+                <div class="flex gap-4">
+                    <div
+                        class="flex-shrink-0 w-8 h-8 rounded-full bg-blue-900/30 text-blue-400 flex items-center justify-center font-bold text-sm border border-blue-500/20 z-10 bg-slate-900">
+                        4</div>
+                    <div>
+                        <h4 class="text-sm font-bold text-slate-200 mb-1">导入 NebulaDL</h4>
+                        <p class="text-xs text-slate-400 leading-relaxed">
+                            回到本软件设置页，选择对应平台并导入刚才的 txt 文件。
+                        </p>
+                    </div>
+                </div>
+
+                <!-- 连接线 -->
+                <div class="absolute left-[22px] top-6 bottom-16 w-px bg-blue-900/50 -z-0"></div>
+            </div>
+
+            <div class="mt-8 pt-4 border-t border-slate-800">
+                <button onclick="closeCookieGuideModal()"
+                    class="w-full bg-slate-800 hover:bg-slate-700 text-white py-2.5 rounded-xl font-medium transition-colors text-sm">
+                    我明白了
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 7. 全局消息弹窗 (App Dialog) -->
+    <div id="appDialog"
+        class="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] hidden flex items-center justify-center opacity-0 transition-opacity duration-300">
+        <div id="appDialogContent"
+            class="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-sm p-6 shadow-2xl transform scale-95 transition-transform duration-300 flex flex-col relative overflow-hidden">
+            
+             <!-- 装饰光效 -->
+             <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-purple-500 to-yellow-500"></div>
+
+            <div class="text-center">
+                <!-- Icon -->
+                <div id="appDialogIcon" class="w-14 h-14 rounded-full bg-slate-800 flex items-center justify-center mx-auto mb-4 border border-slate-700 shadow-inner">
+                    <i class="fa-solid fa-circle-info text-2xl text-blue-400"></i>
+                </div>
+
+                <h3 id="appDialogTitle" class="text-lg font-bold text-white mb-2">提示</h3>
+                
+                <!-- 可选中文本区域 -->
+                <div id="appDialogMessage" class="text-sm text-slate-300 mb-6 leading-relaxed select-text whitespace-pre-wrap break-words max-h-60 overflow-y-auto px-2">
+                    消息内容...
+                </div>
+            </div>
+
+            <!-- 按钮组 -->
+            <div class="grid grid-cols-2 gap-3">
+                <button onclick="copyAppDialogText()"
+                    class="py-2.5 rounded-xl border border-slate-700 text-slate-400 hover:text-white hover:bg-slate-800 transition-colors text-sm font-medium">
+                    <i class="fa-regular fa-copy mr-1"></i> 复制
+                </button>
+                <button onclick="closeAppDialog()"
+                    class="py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/20 transition-colors text-sm font-medium">
+                    确定
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cover Preview Modal -->
+    <div id="imagePreviewModal"
+        class="fixed inset-0 z-[120] hidden items-center justify-center opacity-0 transition-opacity duration-200">
+        <div class="absolute inset-0 bg-black/80" onclick="closeImagePreview()"></div>
+        <div class="relative w-[92vw] max-w-5xl max-h-[88vh]">
+            <button onclick="closeImagePreview()"
+                class="absolute -top-4 -right-4 w-10 h-10 rounded-full bg-slate-900 border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800 transition-colors shadow-xl flex items-center justify-center"
+                title="关闭">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+            <div class="bg-slate-900 border border-slate-700 rounded-2xl overflow-hidden shadow-2xl">
+                <img id="imagePreviewImg" src="" alt="Cover Preview" class="w-full h-full object-contain bg-black" />
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let pywebviewReady = false;
+        let currentVideo = null;
+        let currentQueueItem = null;
+        let cookieMappings = [];
+
+        const taskButtons = {};
+
+        function openImagePreview(src) {
+            const modal = document.getElementById('imagePreviewModal');
+            const img = document.getElementById('imagePreviewImg');
+            if (!modal || !img) return;
+            const s = String(src || '').trim();
+            if (!s) return;
+
+            img.src = s;
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            void modal.offsetWidth;
+            modal.classList.remove('opacity-0');
+        }
+
+        function closeImagePreview() {
+            const modal = document.getElementById('imagePreviewModal');
+            const img = document.getElementById('imagePreviewImg');
+            if (!modal) return;
+
+            modal.classList.add('opacity-0');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+                if (img) img.src = '';
+            }, 200);
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e && e.key === 'Escape') closeImagePreview();
+        });
+
+        // --- Image Preview Logic ---
+        // --- App Dialog Logic ---
+        function showAppDialog(optionsOrMsg) {
+            const el = document.getElementById('appDialog');
+            const content = document.getElementById('appDialogContent');
+            const iconContainer = document.getElementById('appDialogIcon');
+            const titleEl = document.getElementById('appDialogTitle');
+            const msgEl = document.getElementById('appDialogMessage');
+            
+            if (!el || !content) return;
+
+            let msg = '';
+            let title = '提示';
+            let type = 'info';
+
+            if (typeof optionsOrMsg === 'object' && optionsOrMsg !== null) {
+                msg = optionsOrMsg.message || '';
+                title = optionsOrMsg.title || '提示';
+                type = optionsOrMsg.type || 'info';
+            } else {
+                msg = String(optionsOrMsg);
+            }
+
+            if (titleEl) titleEl.textContent = title;
+            if (msgEl) msgEl.textContent = msg;
+
+            // Icon logic
+            let iconHtml = '<i class="fa-solid fa-circle-info text-2xl text-blue-400"></i>';
+            if (type === 'error' || title.includes('错误') || title.includes('失败')) {
+                 iconHtml = '<i class="fa-solid fa-triangle-exclamation text-2xl text-red-500"></i>';
+            } else if (type === 'success' || title.includes('成功') || title.includes('完成')) {
+                 iconHtml = '<i class="fa-solid fa-circle-check text-2xl text-green-500"></i>';
+            }
+            if (iconContainer) iconContainer.innerHTML = iconHtml;
+
+            el.classList.remove('hidden');
+            void el.offsetWidth; // trigger reflow
+            el.classList.remove('opacity-0');
+            content.classList.remove('scale-95');
+            content.classList.add('scale-100');
+        }
+
+        function closeAppDialog() {
+            const el = document.getElementById('appDialog');
+            const content = document.getElementById('appDialogContent');
+            if (!el) return;
+
+            el.classList.add('opacity-0');
+            if (content) {
+                content.classList.remove('scale-100');
+                content.classList.add('scale-95');
+            }
+            setTimeout(() => el.classList.add('hidden'), 300);
+        }
+
+        function copyAppDialogText() {
+            const msgEl = document.getElementById('appDialogMessage');
+            if (!msgEl) return;
+            const text = msgEl.textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                const btn = document.querySelector('button[onclick="copyAppDialogText()"]');
+                if(btn) {
+                    const original = btn.innerHTML;
+                    btn.innerHTML = '<i class="fa-solid fa-check mr-1"></i> 已复制';
+                    setTimeout(() => btn.innerHTML = original, 2000);
+                }
+            }).catch(err => console.error(err));
+        }
+
+        function _hasApi() {
+            return typeof window !== 'undefined' && window.pywebview && window.pywebview.api;
+        }
+
+        function _parseMaybeJson(value) {
+            if (typeof value === 'string') {
+                try {
+                    return JSON.parse(value);
+                } catch {
+                    return value;
+                }
+            }
+            return value;
+        }
+
+        function _escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function _scrollToQueue() {
+            const section = document.getElementById('downloadQueueSection') || document.getElementById('downloadQueue');
+            if (!section) return;
+
+            const scroller = section.closest('.overflow-y-auto') || document.querySelector('main .overflow-y-auto');
+            if (scroller && typeof scroller.scrollTo === 'function') {
+                const rect = section.getBoundingClientRect();
+                const srect = scroller.getBoundingClientRect();
+                const top = scroller.scrollTop + (rect.top - srect.top) - 24;
+                scroller.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+                return;
+            }
+
+            section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        window.addEventListener('pywebviewready', async function () {
+            pywebviewReady = true;
+        });
+
+        function _setAnalyzeLoading(loading) {
+            const btn = document.querySelector('button[onclick="analyzeVideo()"]');
+            if (!btn) return;
+
+            if (loading) {
+                btn.dataset.originalHtml = btn.innerHTML;
+                btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> 解析中...';
+                btn.disabled = true;
+            } else {
+                if (btn.dataset.originalHtml) {
+                    btn.innerHTML = btn.dataset.originalHtml;
+                    delete btn.dataset.originalHtml;
+                }
+                btn.disabled = false;
+            }
+        }
+
+        async function analyzeVideo() {
+            const input = document.getElementById('urlInput');
+            const emptyState = document.getElementById('emptyState');
+            const resultCard = document.getElementById('resultCard');
+
+            if (!input || !input.value.trim()) {
+                if (input) {
+                    input.focus();
+                    input.classList.add('ring-2', 'ring-red-500');
+                    setTimeout(() => input.classList.remove('ring-2', 'ring-red-500'), 500);
+                }
+                return;
+            }
+
+            if (!pywebviewReady || !_hasApi()) {
+                showAppDialog({title: '系统提示', message: '应用 API 尚未就绪，请稍后再试', type: 'warning'});
+                return;
+            }
+
+            _setAnalyzeLoading(true);
+
+            try {
+                const url = input.value.trim();
+                const raw = await window.pywebview.api.analyze_video(url);
+                const res = _parseMaybeJson(raw);
+
+                if (!res || !res.success) {
+                    showAppDialog({title: '解析失败', message: (res && res.error) ? res.error : '视频解析失败', type: 'error'});
+                    return;
+                }
+
+                currentVideo = res.data;
+                emptyState.classList.add('hidden');
+                resultCard.classList.remove('hidden');
+
+                renderVideo(currentVideo);
+            } catch (e) {
+                showAppDialog({title: '系统错误', message: (e && e.message ? e.message : String(e)), type: 'error'});
+            } finally {
+                _setAnalyzeLoading(false);
+            }
+        }
+
+        function renderVideo(data) {
+            if (!data) return;
+
+            const thumbImg = document.getElementById('thumbImg');
+            if (thumbImg) {
+                if (data.thumbnail) thumbImg.src = data.thumbnail;
+                thumbImg.onkeydown = (e) => {
+                    const key = e && e.key ? String(e.key) : '';
+                    if (key === 'Enter' || key === ' ') {
+                        e.preventDefault();
+                        openImagePreview(thumbImg.src);
+                    }
+                };
+            }
+
+            const durationBadge = document.getElementById('durationBadge');
+            if (durationBadge) durationBadge.textContent = data.duration_str || '00:00';
+
+            const titleEl = document.getElementById('videoTitle');
+            if (titleEl) titleEl.textContent = data.title || '未知标题';
+
+            const viewCountEl = document.getElementById('viewCount');
+            if (viewCountEl) {
+                const icon = viewCountEl.querySelector('i');
+                viewCountEl.textContent = ' ' + (data.view_count || '0 观看');
+                if (icon) viewCountEl.prepend(icon);
+            }
+
+            const uploaderEl = document.getElementById('uploaderName');
+            if (uploaderEl) {
+                const icon = uploaderEl.querySelector('i');
+                uploaderEl.textContent = ' ' + (data.uploader || '未知频道');
+                if (icon) uploaderEl.prepend(icon);
+            }
+
+            // Site/Domain display
+            const siteContainer = document.getElementById('siteNameContainer');
+            const siteText = document.getElementById('siteNameText');
+            if (siteContainer && siteText) {
+                if (data.site) {
+                    siteText.textContent = data.site;
+                    siteContainer.classList.remove('hidden');
+                    siteContainer.classList.add('flex');
+                } else {
+                    siteContainer.classList.add('hidden');
+                    siteContainer.classList.remove('flex');
+                }
+            }
+
+            renderFormats(Array.isArray(data.formats) ? data.formats : []);
+        }
+
+        function renderFormats(formats) {
+            const table = document.getElementById('formatTable');
+            if (!table) return;
+
+            table.innerHTML = '';
+
+            const header = document.createElement('div');
+            header.className = 'grid grid-cols-4 px-4 py-2 bg-slate-800/80 text-xs font-semibold text-slate-400 uppercase';
+            header.innerHTML = '<div>格式</div><div>分辨率</div><div>大小</div><div class="text-right">操作</div>';
+            table.appendChild(header);
+
+            if (!formats.length) {
+                const row = document.createElement('div');
+                row.className = 'px-4 py-4 text-sm text-slate-400';
+                row.textContent = '未找到可用格式';
+                table.appendChild(row);
+                return;
+            }
+
+            for (const fmt of formats) {
+                const row = document.createElement('div');
+                row.className = 'grid grid-cols-4 px-4 py-3 border-b border-slate-800/50 items-center hover:bg-slate-800/30 transition-colors';
+
+                const ext = (fmt.ext || '').toUpperCase();
+                const label = fmt.label || fmt.id || '-';
+                const size = fmt.size || '未知';
+                const formatId = fmt.id || 'best';
+
+                const extEsc = _escapeHtml(ext || 'N/A');
+                const labelEsc = _escapeHtml(label);
+                const sizeEsc = _escapeHtml(size);
+
+                const badgeColor = 'bg-blue-900/30 text-blue-400 border-blue-900/50';
+                row.innerHTML = `
+                    <div class="flex items-center gap-2">
+                        <span class="${badgeColor} text-xs px-2 py-0.5 rounded border">${extEsc}</span>
+                    </div>
+                    <div class="text-sm text-slate-300">${labelEsc}</div>
+                    <div class="text-sm text-slate-400">${sizeEsc}</div>
+                    <div class="text-right"></div>
+                `;
+
+                const actionCell = row.lastElementChild;
+                const btn = document.createElement('button');
+                btn.className = 'bg-slate-700 hover:bg-green-600 text-white text-xs px-3 py-1.5 rounded-md transition-all';
+                btn.innerHTML = '<i class="fa-solid fa-download mr-1"></i> 下载';
+                btn.dataset.mode = 'download';
+                btn.dataset.formatId = formatId;
+                btn.dataset.label = label;
+                btn.dataset.ext = ext;
+                btn.onclick = (e) => handleFormatAction(e.currentTarget);
+                actionCell.appendChild(btn);
+
+                table.appendChild(row);
+            }
+
+            const rows = table.querySelectorAll('div.grid.grid-cols-4');
+            if (rows.length > 1) {
+                const last = rows[rows.length - 1];
+                last.classList.remove('border-b');
+            }
+        }
+
+        function _setFormatButtonUi(btn, mode) {
+            if (!btn) return;
+            const m = String(mode || '').toLowerCase();
+            if (m === 'pause') {
+                btn.innerHTML = '<i class="fa-solid fa-pause mr-1"></i> 暂停';
+                btn.dataset.mode = 'pause';
+                return;
+            }
+            if (m === 'resume') {
+                btn.innerHTML = '<i class="fa-solid fa-download mr-1"></i> 下载';
+                btn.dataset.mode = 'resume';
+                return;
+            }
+            btn.innerHTML = '<i class="fa-solid fa-download mr-1"></i> 下载';
+            btn.dataset.mode = 'download';
+        }
+
+        async function handleFormatAction(btn) {
+            if (!btn) return;
+            const mode = String(btn.dataset.mode || 'download').toLowerCase();
+
+            if (mode === 'pause') {
+                const taskId = String(btn.dataset.taskId || '').trim();
+                if (!taskId) return;
+                try {
+                    const raw = await window.pywebview.api.pause_download(taskId);
+                    const res = _parseMaybeJson(raw);
+                    if (res && res.success) {
+                        _setFormatButtonUi(btn, 'resume');
+                    }
+                } catch {
+                    // ignore
+                }
+                return;
+            }
+
+            if (mode === 'resume') {
+                const taskId = String(btn.dataset.taskId || '').trim();
+                if (!taskId) return;
+                try {
+                    const raw = await window.pywebview.api.resume_download(taskId);
+                    const res = _parseMaybeJson(raw);
+                    if (res && res.success) {
+                        _setFormatButtonUi(btn, 'pause');
+                    }
+                } catch {
+                    // ignore
+                }
+                return;
+            }
+
+            const formatId = String(btn.dataset.formatId || 'best');
+            const label = String(btn.dataset.label || '');
+            const ext = String(btn.dataset.ext || '');
+            await startDownload(formatId, label, ext, btn);
+        }
+
+        async function startDownload(formatId, label, ext, btnElement = null) {
+            // 1. Disable button immediately
+            if (btnElement) {
+                btnElement.disabled = true;
+                btnElement.classList.add('opacity-50', 'cursor-not-allowed');
+            }
+
+            if (!currentVideo || !currentVideo.url) {
+                showAppDialog({title: '操作提示', message: '请先解析视频', type: 'warning'});
+                if (btnElement) {
+                    btnElement.disabled = false;
+                    btnElement.classList.remove('opacity-50', 'cursor-not-allowed');
+                }
+                return;
+            }
+
+            if (!pywebviewReady || !_hasApi()) {
+                showAppDialog({title: '系统提示', message: '应用 API 尚未就绪', type: 'warning'});
+                if (btnElement) {
+                    btnElement.disabled = false;
+                    btnElement.classList.remove('opacity-50', 'cursor-not-allowed');
+                }
+                return;
+            }
+
+            try {
+                const raw = await window.pywebview.api.start_download(currentVideo.url, formatId);
+                const res = _parseMaybeJson(raw);
+
+                if (!res || !res.success) {
+                    // Re-enable on failure
+                    if (btnElement) {
+                        btnElement.disabled = false;
+                        btnElement.classList.remove('opacity-50', 'cursor-not-allowed');
+                    }
+
+                    showAppDialog({title: '下载失败', message: (res && res.error) ? res.error : '下载启动失败', type: 'error'});
+                    return;
+                }
+
+                // Updated: Pass task_id
+                createQueueItem(currentVideo.title || '下载任务', label, ext, res.task_id);
+
+                if (btnElement) {
+                    btnElement.disabled = false;
+                    btnElement.classList.remove('opacity-50', 'cursor-not-allowed');
+                    btnElement.dataset.taskId = res.task_id;
+                    taskButtons[String(res.task_id)] = btnElement;
+                    _setFormatButtonUi(btnElement, 'pause');
+                }
+
+                // Scroll after we actually added the queue item.
+                _scrollToQueue();
+            } catch (e) {
+                // Re-enable on error
+                if (btnElement) {
+                    btnElement.disabled = false;
+                    btnElement.classList.remove('opacity-50', 'cursor-not-allowed');
+                }
+                showAppDialog({title: '系统错误', message: (e && e.message ? e.message : String(e)), type: 'error'});
+            }
+        }
+
+        function createQueueItem(title, label, ext, taskId) {
+            const queue = document.getElementById('downloadQueue');
+            if (!queue) return;
+
+            const item = document.createElement('div');
+            // Use ID for updates
+            item.id = 'task-' + taskId;
+            item.className = 'bg-slate-800/50 border border-slate-700 rounded-xl p-4 flex items-center gap-4 fade-in';
+
+            const filename = `${title} [${label}].${(ext || 'mp4').toLowerCase()}`;
+            const filenameEsc = _escapeHtml(filename);
+            const labelEsc = _escapeHtml(label);
+
+            // Safe fallback if taskId is undefined (shouldn't happen with new API)
+            const safeTaskId = taskId || 'unknown';
+
+            item.innerHTML = `
+                <div class="w-10 h-10 bg-blue-900/30 text-blue-400 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <i class="fa-solid fa-video"></i>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="text-sm font-medium text-white truncate flex-1 mr-4" title="${filenameEsc}">${filenameEsc}</span>
+                        <span class="text-xs text-slate-400 status-text whitespace-nowrap flex-shrink-0 min-w-[120px] sm:min-w-[160px] max-w-[280px] truncate text-right">等待中...</span>
+                    </div>
+                    <div class="w-full bg-slate-700 h-1.5 rounded-full overflow-hidden">
+                        <div class="bg-blue-500 h-full rounded-full progress-bar" style="width: 0%"></div>
+                    </div>
+                    <div class="mt-2 text-xs text-slate-500 flex justify-between">
+                        <span>${labelEsc}</span>
+                        <span class="text-slate-600 font-mono text-[10px]">ID: ${safeTaskId}</span>
+                    </div>
+                </div>
+                <div class="flex items-center gap-1">
+                    <button id="btn-retry-${safeTaskId}" onclick="retryTask('${safeTaskId}')" 
+                            class="hidden w-8 h-8 rounded-full hover:bg-slate-700 text-slate-500 hover:text-yellow-400 transition-colors flex items-center justify-center"
+                            title="重试">
+                        <i class="fa-solid fa-rotate-right text-xs"></i>
+                    </button>
+                    <button id="btn-pause-${safeTaskId}" onclick="togglePause('${safeTaskId}')" 
+                            class="w-8 h-8 rounded-full hover:bg-slate-700 text-slate-500 hover:text-white transition-colors flex items-center justify-center"
+                            title="暂停/继续">
+                        <i class="fa-solid fa-pause text-xs"></i>
+                    </button>
+                    <button onclick="cancelOrCloseQueueItem('${safeTaskId}')" 
+                            class="w-8 h-8 rounded-full hover:bg-slate-700 text-slate-500 hover:text-red-400 transition-colors flex items-center justify-center" 
+                            title="取消下载">
+                        <i class="fa-solid fa-xmark text-xs"></i>
+                    </button>
+                </div>
+            `;
+
+            // Removed manual onclick binding since we use inline onclick for clarity and closure capture
+
+
+            queue.prepend(item);
+            // currentQueueItem = item; // No longer used for single tracking
+        }
+
+        function cancelOrCloseQueueItem(taskId) {
+            const item = document.getElementById('task-' + taskId);
+            if (!item) return;
+
+            const statusEl = item.querySelector('.status-text');
+            const status = (statusEl && statusEl.textContent) ? statusEl.textContent.trim() : '';
+            // If task is already finished/cancelled/failed, close immediately.
+            if (status.includes('下载完成') || status.includes('已取消') || status.includes('下载失败')) {
+                item.remove();
+                return;
+            }
+
+            // Second click after cancellation closes/removes the queue card.
+            if (item.dataset.cancelled === '1') {
+                item.remove();
+                return;
+            }
+
+            item.dataset.cancelled = '1';
+            cancelDownload(taskId);
+        }
+
+        function updateProgress(taskId, percent, status) {
+            // Support both old signature (percent, status) and new (taskId, percent, status)
+            // If taskId is number or string looking like ID, use it. If it looks like percent (number), shift args.
+            // Actually, safest is to check if element exists.
+
+            let id = taskId;
+            let p = percent;
+            let s = status;
+
+            // Handle legacy calls if any
+            if (typeof taskId === 'number' && typeof percent === 'string') {
+                // Old signature: updateProgress(percent, status)
+                // We can't identify the task easily unless we kept currentQueueItem.
+                // But prompt implies Python sends taskId now.
+                // Assuming new signature is strictly followed by Python.
+            }
+
+            const item = document.getElementById('task-' + id);
+            if (!item) return;
+
+            const bar = item.querySelector('.progress-bar');
+            const statusEl = item.querySelector('.status-text');
+            const pauseBtn = item.querySelector(`#btn-pause-${id}`);
+            const pauseIcon = pauseBtn ? pauseBtn.querySelector('i') : null;
+
+            const pNum = Number(p);
+            if (bar && !Number.isNaN(pNum) && pNum >= 0) {
+                bar.style.width = `${Math.max(0, Math.min(100, pNum))}%`;
+            }
+            if (statusEl) statusEl.textContent = s || '';
+
+            // Handle Pause/Resume UI state
+            if (s && (s.includes('Paused') || s.includes('暂停'))) {
+                if (pauseIcon) pauseIcon.className = 'fa-solid fa-play text-xs ml-0.5';
+                if (bar) {
+                    bar.classList.remove('bg-blue-500', 'bg-green-500', 'bg-red-500');
+                    bar.classList.add('bg-yellow-500');
+                }
+            } else {
+                // Default running state
+                if (pauseIcon) pauseIcon.className = 'fa-solid fa-pause text-xs';
+                if (bar && !bar.classList.contains('bg-green-500') && !bar.classList.contains('bg-red-500')) {
+                    bar.classList.remove('bg-yellow-500');
+                    bar.classList.add('bg-blue-500');
+                }
+            }
+        }
+
+        function _resetFormatButtonForTask(taskId) {
+            const id = String(taskId || '').trim();
+            if (!id) return;
+            const btn = taskButtons[id];
+            if (!btn) return;
+
+            delete taskButtons[id];
+            delete btn.dataset.taskId;
+            btn.disabled = false;
+            btn.classList.remove('opacity-50', 'cursor-not-allowed');
+            _setFormatButtonUi(btn, 'download');
+        }
+
+        function onDownloadComplete(taskId) {
+            updateProgress(taskId, 100, '下载完成');
+            _resetFormatButtonForTask(taskId);
+            const item = document.getElementById('task-' + taskId);
+            if (item) {
+                const bar = item.querySelector('.progress-bar');
+                if (bar) {
+                    bar.classList.remove('bg-blue-500');
+                    bar.classList.add('bg-green-500');
+                }
+            }
+        }
+
+        function onDownloadError(taskId, message) {
+            updateProgress(taskId, 0, '下载失败');
+            _resetFormatButtonForTask(taskId);
+            const item = document.getElementById('task-' + taskId);
+            if (item) {
+                const retryBtn = item.querySelector(`#btn-retry-${taskId}`);
+                if (retryBtn) retryBtn.classList.remove('hidden');
+
+                const pauseBtn = item.querySelector(`#btn-pause-${taskId}`);
+                if (pauseBtn) {
+                    pauseBtn.disabled = true;
+                    pauseBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                }
+
+                const statusEl = item.querySelector('.status-text');
+                if (statusEl) {
+                    statusEl.textContent = message || '下载失败';
+                    statusEl.classList.add('text-red-400');
+                }
+                const bar = item.querySelector('.progress-bar');
+                if (bar) {
+                    bar.classList.remove('bg-blue-500');
+                    bar.classList.add('bg-red-500');
+                    bar.style.width = '100%';
+                }
+            }
+        }
+
+        async function retryTask(taskId) {
+            const tid = String(taskId || '').trim();
+            if (!tid) return;
+            if (!pywebviewReady || !_hasApi()) return;
+
+            const item = document.getElementById('task-' + tid);
+            if (!item) return;
+
+            const retryBtn = item.querySelector(`#btn-retry-${tid}`);
+            const pauseBtn = item.querySelector(`#btn-pause-${tid}`);
+            const statusEl = item.querySelector('.status-text');
+            const bar = item.querySelector('.progress-bar');
+
+            if (retryBtn) {
+                retryBtn.disabled = true;
+                retryBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            }
+
+            try {
+                const raw = await window.pywebview.api.retry_download(tid);
+                const res = _parseMaybeJson(raw);
+                if (!res || !res.success) {
+                    if (retryBtn) {
+                        retryBtn.disabled = false;
+                        retryBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                    }
+                    return;
+                }
+
+                if (retryBtn) {
+                    retryBtn.classList.add('hidden');
+                    retryBtn.disabled = false;
+                    retryBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                }
+
+                if (statusEl) {
+                    statusEl.classList.remove('text-red-400');
+                    statusEl.textContent = '等待中...';
+                }
+
+                if (bar) {
+                    bar.classList.remove('bg-red-500', 'bg-green-500');
+                    bar.classList.add('bg-blue-500');
+                    bar.style.width = '0%';
+                }
+
+                if (pauseBtn) {
+                    pauseBtn.disabled = false;
+                    pauseBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                }
+            } catch {
+                if (retryBtn) {
+                    retryBtn.disabled = false;
+                    retryBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                }
+            }
+        }
+
+        async function cancelDownload(taskId) {
+            if (!pywebviewReady || !_hasApi()) return;
+            try {
+                // Pass taskId if available
+                await window.pywebview.api.cancel_download(taskId);
+                updateProgress(taskId, 0, '已取消');
+                _resetFormatButtonForTask(taskId);
+            } catch {
+                // ignore
+            }
+        }
+
+        async function togglePause(taskId) {
+            const tid = String(taskId || '').trim();
+            if (!tid) return;
+            if (!pywebviewReady || !_hasApi()) return;
+
+            const item = document.getElementById('task-' + tid);
+            const statusEl = item ? item.querySelector('.status-text') : null;
+            const status = statusEl ? String(statusEl.textContent || '') : '';
+
+            const btn = taskButtons[tid];
+
+            // If currently paused -> resume.
+            if (status.includes('暂停')) {
+                try {
+                    const raw = await window.pywebview.api.resume_download(tid);
+                    const res = _parseMaybeJson(raw);
+                    if (res && res.success) {
+                        if (btn) _setFormatButtonUi(btn, 'pause');
+                        updateProgress(tid, -1, '等待中...');
+                    }
+                } catch {
+                    // ignore
+                }
+                return;
+            }
+
+            // Otherwise pause.
+            try {
+                const raw = await window.pywebview.api.pause_download(tid);
+                const res = _parseMaybeJson(raw);
+                if (res && res.success) {
+                    if (btn) _setFormatButtonUi(btn, 'resume');
+                    updateProgress(tid, -1, '暂停');
+                }
+            } catch {
+                // ignore
+            }
+        }
+
+        // --- Cookie Logic ---
+        function renderCookieList() {
+            const container = document.getElementById('cookieListContainer');
+            if (!container) return;
+
+            container.innerHTML = '';
+
+            if (!cookieMappings || cookieMappings.length === 0) {
+                container.innerHTML = '<div class="text-xs text-slate-500 text-center py-2 italic" id="noCookieText">暂无配置 Cookie，部分站点可能无法解析/下载。</div>';
+                return;
+            }
+
+            for (const item of cookieMappings) {
+                const domain = (item && item.domain) ? String(item.domain) : '';
+                const path = (item && item.path) ? String(item.path) : '';
+                const fileName = path ? path.split(/[/\\]/).pop() : '';
+
+                const row = document.createElement('div');
+                row.className = 'flex items-center justify-between bg-slate-900/50 rounded-lg p-2 border border-slate-700/50 text-xs';
+
+                const domainEsc = _escapeHtml(domain);
+                const fileNameEsc = _escapeHtml(fileName);
+                const pathEsc = _escapeHtml(path);
+
+                row.innerHTML = `
+                    <div class="flex items-center gap-2 overflow-hidden">
+                        <i class="fa-solid fa-cookie-bite text-yellow-500 w-4 text-center"></i>
+                        <span class="font-medium text-slate-300 font-mono truncate max-w-[160px]" title="${domainEsc}">${domainEsc}</span>
+                        <span class="text-slate-500 truncate max-w-[120px] ml-1" title="${pathEsc}">${fileNameEsc}</span>
+                    </div>
+                    <button onclick="removeCookieMapping('${domainEsc}')" class="text-slate-500 hover:text-red-400 transition-colors px-1">
+                        <i class="fa-solid fa-trash"></i>
+                    </button>
+                `;
+
+                container.appendChild(row);
+            }
+        }
+
+        async function refreshCookieMappings() {
+            if (!pywebviewReady || !_hasApi()) {
+                cookieMappings = [];
+                renderCookieList();
+                return;
+            }
+
+            try {
+                const raw = await window.pywebview.api.get_cookie_mappings();
+                const res = _parseMaybeJson(raw);
+                if (res && res.success && Array.isArray(res.items)) {
+                    cookieMappings = res.items;
+                } else {
+                    cookieMappings = [];
+                }
+            } catch {
+                cookieMappings = [];
+            }
+
+            renderCookieList();
+        }
+
+        async function importCookieForDomain() {
+            const input = document.getElementById('cookieDomainInput');
+            const domainOrUrl = input ? String(input.value || '').trim() : '';
+            if (!domainOrUrl) {
+                showAppDialog({title: '提示', message: '请输入域名或链接', type: 'warning'});
+                return;
+            }
+            if (!pywebviewReady || !_hasApi()) {
+                showAppDialog({title: '系统提示', message: '应用 API 尚未就绪', type: 'warning'});
+                return;
+            }
+
+            try {
+                const pickRaw = await window.pywebview.api.choose_cookie_file();
+                const pick = _parseMaybeJson(pickRaw);
+                if (!pick || !pick.success || !pick.path) {
+                    showAppDialog({title: '导入失败', message: (pick && pick.error) ? pick.error : '未选择文件', type: 'error'});
+                    return;
+                }
+
+                const setRaw = await window.pywebview.api.set_cookie_mapping(domainOrUrl, pick.path);
+                const setRes = _parseMaybeJson(setRaw);
+                if (!setRes || !setRes.success) {
+                    showAppDialog({title: '保存失败', message: (setRes && setRes.error) ? setRes.error : '保存失败', type: 'error'});
+                    return;
+                }
+
+                if (input) input.value = '';
+                await refreshCookieMappings();
+                showAppDialog({title: '成功', message: 'Cookie 已保存', type: 'success'});
+            } catch (e) {
+                showAppDialog({title: '保存失败', message: (e && e.message ? e.message : String(e)), type: 'error'});
+            }
+        }
+
+        async function removeCookieMapping(domain) {
+            const d = String(domain || '').trim();
+            if (!d) return;
+            if (!pywebviewReady || !_hasApi()) return;
+            try {
+                await window.pywebview.api.remove_cookie_mapping(d);
+            } catch {
+                // ignore
+            }
+            await refreshCookieMappings();
+        }
+
+        // --- Cookie Guide Modal Logic ---
+        const cookieGuideModal = document.getElementById('cookieGuideModal');
+
+        function showCookieGuideModal() {
+            if (!cookieGuideModal) return;
+            cookieGuideModal.classList.remove('hidden');
+            void cookieGuideModal.offsetWidth;
+            cookieGuideModal.classList.remove('opacity-0');
+            const child = cookieGuideModal.querySelector('div');
+            if (child) {
+                child.classList.remove('scale-95');
+                child.classList.add('scale-100');
+            }
+        }
+
+        function closeCookieGuideModal() {
+            if (!cookieGuideModal) return;
+            cookieGuideModal.classList.add('opacity-0');
+            const child = cookieGuideModal.querySelector('div');
+            if (child) {
+                child.classList.remove('scale-100');
+                child.classList.add('scale-95');
+            }
+            setTimeout(() => {
+                cookieGuideModal.classList.add('hidden');
+            }, 300);
+        }
+
+        // --- Batch Download Logic ---
+
+        const batchModal = document.getElementById('batchModal');
+        const batchContent = batchModal ? batchModal.querySelector('div') : null;
+
+        function handleBatchClick() {
+            showBatchModal();
+        }
+
+        function showBatchModal() {
+            if (!batchModal || !batchContent) return;
+            batchModal.classList.remove('hidden');
+            void batchModal.offsetWidth;
+            batchModal.classList.remove('opacity-0');
+            batchContent.classList.remove('scale-95');
+            batchContent.classList.add('scale-100');
+        }
+
+        function closeBatchModal() {
+            if (!batchModal || !batchContent) return;
+            batchModal.classList.add('opacity-0');
+            batchContent.classList.remove('scale-100');
+            batchContent.classList.add('scale-95');
+            setTimeout(() => batchModal.classList.add('hidden'), 300);
+        }
+
+        async function startBatchDownload() {
+            const urlsArea = document.getElementById('batchUrls');
+            const formatSelect = document.getElementById('batchFormat');
+
+            if (!urlsArea || !formatSelect) return;
+
+            const text = urlsArea.value;
+            if (!text.trim()) {
+                showAppDialog({title: '提示', message: '请粘贴视频链接', type: 'warning'});
+                return;
+            }
+
+            const urls = text.split('\n').map(u => u.trim()).filter(u => u.length > 0);
+            if (urls.length === 0) {
+                showAppDialog({title: '提示', message: '未检测到有效链接', type: 'warning'});
+                return;
+            }
+
+            if (!pywebviewReady || !_hasApi()) {
+                showAppDialog({title: '系统提示', message: 'API 未就绪', type: 'warning'});
+                return;
+            }
+
+            const formatId = formatSelect.value;
+            // Map simple format ID to label/ext for UI if needed, 
+            // but we mostly rely on task info returned by backend.
+
+            try {
+                const raw = await window.pywebview.api.start_batch_download(urls, formatId);
+                const res = _parseMaybeJson(raw);
+
+                if (res && res.success && Array.isArray(res.tasks)) {
+                    closeBatchModal();
+                    // Clear input
+                    urlsArea.value = '';
+
+                    // Create tasks
+                    // Reverse to keep order or just append? 
+                    // createQueueItem prepends, so if we want 1st URL at bottom, loop normally.
+                    // If we want 1st URL at top, loop in reverse.
+                    // Let's loop reverse so the first one ends up at the top of the list.
+                    for (let i = res.tasks.length - 1; i >= 0; i--) {
+                        const task = res.tasks[i];
+                        const label = (formatId === 'audio' ? 'Audio Only' : (formatId === 'best' ? 'Best Quality' : formatId));
+                        createQueueItem(task.title || task.url, label, 'mp4', task.task_id);
+                    }
+                } else {
+                    showAppDialog({title: '启动失败', message: (res && res.error) ? res.error : '批量任务启动失败', type: 'error'});
+                }
+            } catch (e) {
+                showAppDialog({title: '错误', message: '批量下载错误: ' + e, type: 'error'});
+            }
+        }
+
+        // --- Settings Modal Logic (新增) ---
+        const settingsModal = document.getElementById('settingsModal');
+        const settingsContent = settingsModal ? settingsModal.querySelector('div') : null;
+
+        async function showSettingsModal() {
+            if (!settingsModal || !settingsContent) return;
+
+            // 尝试从后端加载设置
+            if (pywebviewReady && _hasApi()) {
+                try {
+                    const raw = await window.pywebview.api.get_settings();
+                    const settings = _parseMaybeJson(raw);
+                    if (settings) {
+                        if (settings.download_path) document.getElementById('settingDownloadPath').value = settings.download_path;
+                        if (settings.proxy) document.getElementById('settingProxy').value = settings.proxy;
+
+                        // New setting: create_folder
+                        const createFolderEl = document.getElementById('settingCreateFolder');
+                        if (createFolderEl) {
+                            createFolderEl.checked = !!settings.create_folder;
+                        }
+
+
+                        if (settings.threads) {
+                            document.getElementById('settingThreads').value = settings.threads;
+                            document.getElementById('threadVal').innerText = settings.threads;
+                        }
+                    }
+                } catch (e) {
+                    console.error("Load settings failed", e);
+                }
+            }
+
+            await refreshCookieMappings();
+
+            settingsModal.classList.remove('hidden');
+            void settingsModal.offsetWidth;
+            settingsModal.classList.remove('opacity-0');
+            settingsContent.classList.remove('scale-95');
+            settingsContent.classList.add('scale-100');
+        }
+
+        function closeSettingsModal() {
+            if (!settingsModal || !settingsContent) return;
+            settingsModal.classList.add('opacity-0');
+            settingsContent.classList.remove('scale-100');
+            settingsContent.classList.add('scale-95');
+            setTimeout(() => settingsModal.classList.add('hidden'), 300);
+        }
+
+        async function selectDownloadFolder() {
+            if (!pywebviewReady || !_hasApi()) return;
+            try {
+                const path = await window.pywebview.api.choose_directory();
+                if (path) {
+                    document.getElementById('settingDownloadPath').value = path;
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function saveSettings() {
+            const path = document.getElementById('settingDownloadPath').value;
+            const proxy = document.getElementById('settingProxy').value;
+            const threads = document.getElementById('settingThreads').value;
+            const createFolder = document.getElementById('settingCreateFolder').checked;
+
+            if (!pywebviewReady || !_hasApi()) {
+                // 本地模拟保存
+                closeSettingsModal();
+                return;
+            }
+
+            try {
+                const data = {
+                    download_path: path,
+                    proxy: proxy,
+                    threads: parseInt(threads),
+                    create_folder: createFolder,
+                };
+                await window.pywebview.api.save_settings(data);
+                closeSettingsModal();
+                showAppDialog({title: '成功', message: '设置已保存', type: 'success'});
+            } catch (e) {
+                showAppDialog({title: '保存失败', message: String(e), type: 'error'});
+            }
+        }
+    </script>
+</body>
+
+</html>
