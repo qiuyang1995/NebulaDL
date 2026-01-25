@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 
 import webview
 from .downloader import VideoAnalyzer, DownloadTask
+from .history import download_history
 
 
 class JsApi:
@@ -270,7 +271,31 @@ class JsApi:
         url = url.strip()
         proxy = self._settings.get('proxy')
         cookiefile = self._cookiefile_for_url(url)
-        result = VideoAnalyzer.analyze(url, proxy=proxy, cookiefile=cookiefile)
+
+        timeout_seconds = 180
+        box: dict[str, Any] = {}
+
+        def _worker() -> None:
+            try:
+                box['result'] = VideoAnalyzer.analyze(url, proxy=proxy, cookiefile=cookiefile)
+            except Exception as e:
+                box['result'] = {'success': False, 'error': f'发生未知错误: {str(e)}'}
+
+        t = threading.Thread(target=_worker, daemon=True)
+        t.start()
+        t.join(timeout=timeout_seconds)
+        if t.is_alive():
+            return json.dumps(
+                {
+                    'success': False,
+                    'error': '网络异常，解析超时，请检查网络连接或稍后再试',
+                },
+                ensure_ascii=False,
+            )
+
+        result = box.get('result')
+        if not isinstance(result, dict):
+            result = {'success': False, 'error': '发生未知错误: 无效的解析结果'}
         
         if result['success']:
             self._current_video_info = result['data']
@@ -303,6 +328,7 @@ class JsApi:
         task_id = uuid.uuid4().hex
         proxy = self._settings.get('proxy')
         create_folder = bool(self._settings.get('create_folder'))
+        convert_mp4 = bool(self._settings.get('convert_mp4'))
 
         # Try to keep total parallel fragment connections around 8.
         # Can override via env: NEBULADL_FRAGMENT_THREADS
@@ -319,9 +345,16 @@ class JsApi:
 
         cancel_event = threading.Event()
         self._task_cancel[task_id] = cancel_event
+
+        # 获取当前解析的视频标题（如果有）
+        video_title = ''
+        if self._current_video_info and self._current_video_info.get('url') == url:
+            video_title = self._current_video_info.get('title', '')
+
         self._task_meta[task_id] = {
             'url': url,
             'format_id': format_id,
+            'title': video_title,
             'fragment_downloads': fragment_downloads,
             'write_thumbnail': write_thumbnail,
             'cookiefile': cookiefile,
@@ -334,10 +367,22 @@ class JsApi:
             status_json = json.dumps(status, ensure_ascii=False)
             self._emit_js(f"updateProgress({tid_json}, {int(percent)}, {status_json})")
 
-        def on_complete(tid: str) -> None:
+        def on_complete(tid: str, final_path: Any = None) -> None:
             tid_json = json.dumps(tid, ensure_ascii=False)
             self._emit_js(f"onDownloadComplete({tid_json})")
             self._task_state[tid] = 'completed'
+            # 记录下载历史
+            meta = self._task_meta.get(tid) or {}
+
+            fp = str(final_path or '').strip()
+            output_path = fp if fp else self._download_dir
+            download_history.add_record(
+                url=meta.get('url', url),
+                title=meta.get('title', ''),
+                format_id=meta.get('format_id', format_id),
+                output_path=output_path,
+                status='completed'
+            )
             self._on_task_done(tid)
 
         def on_error(tid: str, error: str) -> None:
@@ -363,6 +408,17 @@ class JsApi:
                 self._thumb_done.discard(url)
 
             self._task_state[tid] = 'error'
+            # 记录下载历史（失败/取消）
+            meta = self._task_meta.get(tid) or {}
+            status = 'cancelled' if err == '已取消' else 'error'
+            download_history.add_record(
+                url=meta.get('url', url),
+                title=meta.get('title', ''),
+                format_id=meta.get('format_id', format_id),
+                output_path=self._download_dir,
+                status=status,
+                error=err
+            )
             tid_json = json.dumps(tid, ensure_ascii=False)
             error_json = json.dumps(error, ensure_ascii=False)
             self._emit_js(f"onDownloadError({tid_json}, {error_json})")
@@ -375,6 +431,7 @@ class JsApi:
             output_dir=self._download_dir,
             proxy=proxy,
             create_folder=create_folder,
+            convert_mp4=convert_mp4,
             write_thumbnail=write_thumbnail,
             cookiefile=cookiefile,
             fragment_downloads=fragment_downloads,
@@ -414,13 +471,14 @@ class JsApi:
 
         proxy = self._settings.get('proxy')
         create_folder = bool(self._settings.get('create_folder'))
+        convert_mp4 = bool(self._settings.get('convert_mp4'))
 
         def on_progress(tid2: str, percent: int, status: str) -> None:
             tid_json = json.dumps(tid2, ensure_ascii=False)
             status_json = json.dumps(status, ensure_ascii=False)
             self._emit_js(f"updateProgress({tid_json}, {int(percent)}, {status_json})")
 
-        def on_complete(tid2: str) -> None:
+        def on_complete(tid2: str, final_path: Any = None) -> None:
             tid_json = json.dumps(tid2, ensure_ascii=False)
             self._emit_js(f"onDownloadComplete({tid_json})")
             self._task_state[tid2] = 'completed'
@@ -453,6 +511,7 @@ class JsApi:
             output_dir=self._download_dir,
             proxy=proxy,
             create_folder=create_folder,
+            convert_mp4=convert_mp4,
             write_thumbnail=write_thumbnail,
             cookiefile=cookiefile,
             fragment_downloads=fragment_downloads,
@@ -576,13 +635,14 @@ class JsApi:
 
         proxy = self._settings.get('proxy')
         create_folder = bool(self._settings.get('create_folder'))
+        convert_mp4 = bool(self._settings.get('convert_mp4'))
 
         def on_progress(tid2: str, percent: int, status: str) -> None:
             tid_json = json.dumps(tid2, ensure_ascii=False)
             status_json = json.dumps(status, ensure_ascii=False)
             self._emit_js(f"updateProgress({tid_json}, {int(percent)}, {status_json})")
 
-        def on_complete(tid2: str) -> None:
+        def on_complete(tid2: str, final_path: Any = None) -> None:
             tid_json = json.dumps(tid2, ensure_ascii=False)
             self._emit_js(f"onDownloadComplete({tid_json})")
             self._task_state[tid2] = 'completed'
@@ -615,6 +675,7 @@ class JsApi:
             output_dir=self._download_dir,
             proxy=proxy,
             create_folder=create_folder,
+            convert_mp4=convert_mp4,
             write_thumbnail=write_thumbnail,
             cookiefile=cookiefile,
             fragment_downloads=fragment_downloads,
@@ -674,6 +735,7 @@ class JsApi:
         data['download_path'] = self._download_dir
         data['threads'] = self._effective_threads()
         data['create_folder'] = bool(self._settings.get('create_folder'))
+        data['convert_mp4'] = bool(self._settings.get('convert_mp4'))
         return json.dumps(data, ensure_ascii=False)
 
     def save_settings(self, data: Any) -> str:
@@ -708,6 +770,12 @@ class JsApi:
             # 兼容前端传 0/1 或 "true"/"false"
             self._settings['create_folder'] = str(create_folder).strip().lower() in ('1', 'true', 'yes', 'on')
 
+        convert_mp4 = data.get('convert_mp4')
+        if isinstance(convert_mp4, bool):
+            self._settings['convert_mp4'] = convert_mp4
+        elif convert_mp4 is not None:
+            self._settings['convert_mp4'] = str(convert_mp4).strip().lower() in ('1', 'true', 'yes', 'on')
+
         self._save_settings()
 
         with self._cond:
@@ -729,3 +797,218 @@ class JsApi:
         except Exception:
             pass
         return ''
+
+    def get_diagnostic_info(self) -> str:
+        """获取诊断信息，用于用户反馈问题时复制"""
+        import platform
+        import sys
+        from datetime import datetime
+
+        info_lines = []
+        info_lines.append("=== NebulaDL 诊断信息 ===")
+        info_lines.append(f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        info_lines.append("")
+
+        # 系统信息
+        info_lines.append("[系统]")
+        info_lines.append(f"操作系统: {platform.system()} {platform.release()}")
+        info_lines.append(f"Python 版本: {sys.version.split()[0]}")
+        info_lines.append("")
+
+        # yt-dlp 版本
+        info_lines.append("[yt-dlp]")
+        try:
+            import yt_dlp
+            ver_mod = getattr(yt_dlp, 'version', None)
+            ver = getattr(ver_mod, '__version__', None) or getattr(yt_dlp, '__version__', None) or '未知'
+            info_lines.append(f"版本: {ver}")
+        except Exception as e:
+            info_lines.append(f"版本: 获取失败 ({e})")
+        info_lines.append("")
+
+        # ffmpeg 版本
+        info_lines.append("[FFmpeg]")
+        try:
+            import subprocess
+            result = subprocess.run(
+                ['ffmpeg', '-version'],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == 'Windows' else 0
+            )
+            first_line = result.stdout.split('\n')[0] if result.stdout else '未找到'
+            info_lines.append(f"版本: {first_line}")
+        except FileNotFoundError:
+            info_lines.append("版本: 未安装或未在 PATH 中")
+        except Exception as e:
+            info_lines.append(f"版本: 获取失败 ({e})")
+        info_lines.append("")
+
+        # 设置摘要（脱敏）
+        info_lines.append("[设置]")
+        info_lines.append(f"下载目录: {self._download_dir}")
+        info_lines.append(f"并发数: {self._effective_threads()}")
+        info_lines.append(f"代理: {'已设置' if self._settings.get('proxy') else '未设置'}")
+        info_lines.append(f"智能归档: {'开启' if self._settings.get('create_folder') else '关闭'}")
+        info_lines.append(f"自动转MP4: {'开启' if self._settings.get('convert_mp4') else '关闭'}")
+        info_lines.append(f"Cookie 映射数: {len(self._cookie_map)}")
+
+        diagnostic_text = '\n'.join(info_lines)
+        return json.dumps({'success': True, 'text': diagnostic_text}, ensure_ascii=False)
+
+    # --- 下载历史 API ---
+    def get_history(self, query: Optional[str] = None) -> str:
+        """获取下载历史"""
+        q = (query or '').strip() if query else None
+        records = download_history.get_records(query=q)
+        return json.dumps({'success': True, 'records': records}, ensure_ascii=False)
+
+    def delete_history_record(self, record_id: str) -> str:
+        """删除单条历史记录"""
+        rid = (record_id or '').strip()
+        if not rid:
+            return json.dumps({'success': False, 'error': '无效的记录ID'}, ensure_ascii=False)
+        ok = download_history.delete_record(rid)
+        if ok:
+            return json.dumps({'success': True}, ensure_ascii=False)
+        return json.dumps({'success': False, 'error': '记录不存在'}, ensure_ascii=False)
+
+    def clear_history(self) -> str:
+        """清空所有历史记录"""
+        download_history.clear_all()
+        return json.dumps({'success': True}, ensure_ascii=False)
+
+    def redownload_from_history(self, record_id: str) -> str:
+        """从历史记录一键重下"""
+        rid = (record_id or '').strip()
+        record = download_history.get_record_by_id(rid)
+        if not record:
+            return json.dumps({'success': False, 'error': '记录不存在'}, ensure_ascii=False)
+
+        url = record.get('url', '')
+        format_id = record.get('format_id', 'best')
+        if not url:
+            return json.dumps({'success': False, 'error': '记录URL无效'}, ensure_ascii=False)
+
+        return self.start_download(url, format_id)
+
+    # --- 版本检查 API ---
+    def get_version_info(self) -> str:
+        """获取当前 yt-dlp 和 ffmpeg 版本信息"""
+        import platform
+        import subprocess
+
+        result: dict[str, Any] = {'success': True}
+
+        # yt-dlp 版本
+        try:
+            import yt_dlp
+            ver_mod = getattr(yt_dlp, 'version', None)
+            result['ytdlp_version'] = getattr(ver_mod, '__version__', None) or getattr(yt_dlp, '__version__', None)
+        except Exception:
+            result['ytdlp_version'] = None
+
+        # ffmpeg 版本
+        try:
+            proc = subprocess.run(
+                ['ffmpeg', '-version'],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == 'Windows' else 0
+            )
+            first_line = proc.stdout.split('\n')[0] if proc.stdout else ''
+            # 提取版本号，例如 "ffmpeg version 6.0 ..."
+            parts = first_line.split()
+            if len(parts) >= 3:
+                result['ffmpeg_version'] = parts[2]
+            else:
+                result['ffmpeg_version'] = first_line or None
+        except FileNotFoundError:
+            result['ffmpeg_version'] = None
+        except Exception:
+            result['ffmpeg_version'] = None
+
+        return json.dumps(result, ensure_ascii=False)
+
+    def check_ytdlp_update(self) -> str:
+        """检查 yt-dlp 是否有更新（从 PyPI 获取最新版本）"""
+        import urllib.request
+        import urllib.error
+
+        result: dict[str, Any] = {'success': True}
+
+        # 当前版本
+        try:
+            import yt_dlp
+            ver_mod = getattr(yt_dlp, 'version', None)
+            current = getattr(ver_mod, '__version__', None) or getattr(yt_dlp, '__version__', None)
+            if not current:
+                raise RuntimeError('无法获取当前 yt-dlp 版本')
+            result['current_version'] = current
+        except Exception:
+            return json.dumps({'success': False, 'error': '无法获取当前 yt-dlp 版本'}, ensure_ascii=False)
+
+        # 从 PyPI 获取最新版本
+        try:
+            req = urllib.request.Request(
+                'https://pypi.org/pypi/yt-dlp/json',
+                headers={'User-Agent': 'NebulaDL/1.0'}
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+                latest = data.get('info', {}).get('version', '')
+                result['latest_version'] = latest
+                result['update_available'] = latest and current != latest
+        except Exception as e:
+            result['latest_version'] = None
+            result['update_available'] = False
+            result['check_error'] = str(e)
+
+        return json.dumps(result, ensure_ascii=False)
+
+    def open_ytdlp_release_page(self) -> str:
+        """打开 yt-dlp 发布页面"""
+        import webbrowser
+        try:
+            webbrowser.open('https://github.com/yt-dlp/yt-dlp/releases')
+            return json.dumps({'success': True}, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({'success': False, 'error': str(e)}, ensure_ascii=False)
+
+    def open_folder(self, path: str) -> str:
+        """打开文件所在文件夹"""
+        import subprocess
+        import platform
+        
+        path = (path or '').strip()
+        if not path:
+            return json.dumps({'success': False, 'error': '路径为空'}, ensure_ascii=False)
+        
+        try:
+            # 如果是文件路径，获取其所在目录
+            if os.path.isfile(path):
+                folder = os.path.dirname(path)
+            else:
+                folder = path
+            
+            if not os.path.exists(folder):
+                return json.dumps({'success': False, 'error': '文件夹不存在'}, ensure_ascii=False)
+            
+            # 根据操作系统打开文件夹
+            system = platform.system()
+            if system == 'Windows':
+                # 如果是文件，选中该文件
+                if os.path.isfile(path):
+                    subprocess.run(['explorer', '/select,', path], shell=True)
+                else:
+                    subprocess.run(['explorer', folder], shell=True)
+            elif system == 'Darwin':  # macOS
+                subprocess.run(['open', folder])
+            else:  # Linux
+                subprocess.run(['xdg-open', folder])
+            
+            return json.dumps({'success': True}, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({'success': False, 'error': str(e)}, ensure_ascii=False)

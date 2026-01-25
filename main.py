@@ -104,7 +104,8 @@ def _maybe_hide_windows_console() -> None:
 
 def main():
     """应用程序入口"""
-    _maybe_hide_windows_console()
+    # 开发阶段：保持控制台可见以便调试
+    # _maybe_hide_windows_console()
 
     # 创建 API 实例
     api = JsApi()
@@ -140,7 +141,7 @@ def main():
         url=html_path,
         width=1200,
         height=800,
-        min_size=(900, 600),
+        min_size=(1000, 700),
         background_color='#0f172a',  # Slate 900，防止启动白屏
         js_api=api,
         # Allow users to select/copy text (e.g., error dialogs).

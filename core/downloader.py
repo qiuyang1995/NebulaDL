@@ -5,6 +5,8 @@ NebulaDL - yt-dlp Download Wrapper Module
 import threading
 import os
 import uuid
+import platform
+import subprocess
 from typing import Optional, Callable, Any, cast
 
 import yt_dlp
@@ -33,6 +35,9 @@ class VideoAnalyzer:
             'quiet': True,
             'no_warnings': True,
             'extract_flat': False,
+            # Keep individual network operations bounded.
+            # Overall timeout is enforced by JsApi.analyze_video.
+            'socket_timeout': 30,
         }
 
         if proxy:
@@ -297,6 +302,7 @@ class DownloadTask(threading.Thread):
         output_dir: str,
         proxy: Optional[str] = None,
         create_folder: bool = False,
+        convert_mp4: bool = False,
         write_thumbnail: bool = True,
         cookiefile: Optional[str] = None,
         fragment_downloads: int = 1,
@@ -311,6 +317,7 @@ class DownloadTask(threading.Thread):
         self.output_dir = output_dir
         self.proxy = proxy
         self.create_folder = create_folder
+        self.convert_mp4 = bool(convert_mp4)
         self.write_thumbnail = bool(write_thumbnail)
         self.cookiefile = cookiefile
         self.fragment_downloads = max(1, int(fragment_downloads or 1))
@@ -319,6 +326,7 @@ class DownloadTask(threading.Thread):
         self.error_callback = error_callback
         self._stop_event = threading.Event()
         self._stop_reason = 'cancel'
+        self._final_filepath: Optional[str] = None
 
     class DownloadStopped(Exception):
         """User initiated stop (cancel/pause)."""
@@ -445,9 +453,28 @@ class DownloadTask(threading.Thread):
             ydl_opts_any: Any = ydl_opts
             with yt_dlp.YoutubeDL(ydl_opts_any) as ydl:
                 ydl.download([self.url])
+
+            if self.convert_mp4 and self.format_id != 'audio':
+                if self._stop_event.is_set():
+                    raise DownloadTask.DownloadStopped(self._stop_reason)
+
+                src = (self._final_filepath or '').strip()
+                if not src or not os.path.isfile(src):
+                    raise RuntimeError('下载完成，但无法定位输出文件路径，无法转为 MP4')
+
+                if not src.lower().endswith('.mp4'):
+                    if self.progress_callback:
+                        self.progress_callback(self.task_id, 100, '下载完成，转为 MP4 中...')
+                    try:
+                        dst = self._convert_to_mp4(src)
+                        self._final_filepath = dst
+                    except Exception as e:
+                        if self.error_callback:
+                            self.error_callback(self.task_id, f'下载完成，但转为 MP4 失败：{e}')
+                        return
             
             if self.complete_callback:
-                self.complete_callback(self.task_id)
+                self.complete_callback(self.task_id, self._final_filepath)
                  
         except DownloadTask.DownloadStopped as e:
             if self.error_callback:
@@ -491,6 +518,12 @@ class DownloadTask(threading.Thread):
                     self.progress_callback(self.task_id, percent, status)
         
         elif d['status'] == 'finished':
+            try:
+                fn = d.get('filename')
+                if isinstance(fn, str) and fn.strip():
+                    self._final_filepath = fn
+            except Exception:
+                pass
             if self.progress_callback:
                 self.progress_callback(self.task_id, 100, '下载完成')
 
@@ -498,6 +531,105 @@ class DownloadTask(threading.Thread):
         """后处理阶段钩子"""
         if self._stop_event.is_set():
             raise DownloadTask.DownloadStopped(self._stop_reason)
+
+        try:
+            if d.get('status') == 'finished':
+                info = d.get('info_dict')
+                if isinstance(info, dict):
+                    fp = info.get('filepath') or info.get('_filename')
+                    if isinstance(fp, str) and fp.strip():
+                        self._final_filepath = fp
+        except Exception:
+            pass
+
+    def _convert_to_mp4(self, src_path: str) -> str:
+        src = (src_path or '').strip()
+        if not src or not os.path.isfile(src):
+            raise RuntimeError('源文件不存在')
+
+        root, _ext = os.path.splitext(src)
+        dst = root + '.mp4'
+
+        if os.path.normcase(os.path.abspath(dst)) == os.path.normcase(os.path.abspath(src)):
+            return src
+
+        # Avoid overwriting an existing file.
+        if os.path.exists(dst):
+            i = 1
+            while True:
+                cand = f"{root}-{i}.mp4"
+                if not os.path.exists(cand):
+                    dst = cand
+                    break
+                i += 1
+
+        creationflags = subprocess.CREATE_NO_WINDOW if platform.system() == 'Windows' else 0
+
+        def run_ffmpeg(args: list[str]) -> subprocess.CompletedProcess[str]:
+            try:
+                return subprocess.run(
+                    args,
+                    capture_output=True,
+                    text=True,
+                    timeout=None,
+                    creationflags=creationflags,
+                )
+            except FileNotFoundError:
+                raise RuntimeError('未检测到 FFmpeg，请先安装并加入 PATH')
+
+        # 1) Prefer lossless remux (stream copy).
+        remux_cmd = [
+            'ffmpeg',
+            '-y',
+            '-i', src,
+            '-map', '0:v:0',
+            '-map', '0:a?',
+            '-c', 'copy',
+            '-sn',
+            '-dn',
+            '-movflags', '+faststart',
+            dst,
+        ]
+        proc = run_ffmpeg(remux_cmd)
+
+        # 2) Fallback: transcode to H.264/AAC for broad MP4 compatibility.
+        if proc.returncode != 0:
+            if os.path.exists(dst):
+                try:
+                    os.remove(dst)
+                except Exception:
+                    pass
+
+            transcode_cmd = [
+                'ffmpeg',
+                '-y',
+                '-i', src,
+                '-map', '0:v:0',
+                '-map', '0:a?',
+                '-c:v', 'libx264',
+                '-preset', 'veryfast',
+                '-crf', '20',
+                '-c:a', 'aac',
+                '-b:a', '192k',
+                '-sn',
+                '-dn',
+                '-movflags', '+faststart',
+                dst,
+            ]
+            proc = run_ffmpeg(transcode_cmd)
+
+        if proc.returncode != 0 or not os.path.isfile(dst):
+            err = (proc.stderr or proc.stdout or '').strip()
+            err_tail = '\n'.join(err.splitlines()[-12:]) if err else '未知错误'
+            raise RuntimeError(f'FFmpeg 转换失败:\n{err_tail}')
+
+        # Success: remove the original container file.
+        try:
+            os.remove(src)
+        except Exception:
+            pass
+
+        return dst
 
 
 def _format_duration(seconds: int) -> str:
