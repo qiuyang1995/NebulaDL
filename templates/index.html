@@ -1,0 +1,627 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NebulaDL - 通用视频下载器</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a;
+            /* Slate 900 */
+            color: #e2e8f0;
+            /* Slate 200 */
+        }
+
+        /* 自定义滚动条 */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #1e293b;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
+        }
+
+        .glass-panel {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .pro-gradient-text {
+            background: linear-gradient(to right, #facc15, #fbbf24);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .btn-pro {
+            background: linear-gradient(135deg, #ca8a04 0%, #eab308 100%);
+            transition: all 0.3s ease;
+        }
+
+        .btn-pro:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(234, 179, 8, 0.3);
+        }
+
+        /* 动画类 */
+        .fade-in {
+            animation: fadeIn 0.5s ease-out forwards;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+    </style>
+</head>
+
+<body class="flex h-screen overflow-hidden">
+
+    <!-- 1. 侧边导航栏 (Sidebar) -->
+    <aside class="w-64 bg-slate-900 border-r border-slate-800 flex flex-col justify-between">
+        <div>
+            <!-- Logo -->
+            <div class="p-6 flex items-center gap-3">
+                <div class="w-8 h-8 bg-red-600 rounded-lg flex items-center justify-center">
+                    <i class="fa-brands fa-youtube text-white text-lg"></i>
+                </div>
+                <span class="text-xl font-bold text-white tracking-tight">Nebula<span
+                        class="font-light text-slate-400">DL</span></span>
+            </div>
+
+            <!-- 导航菜单 -->
+            <nav class="px-4 space-y-2 mt-4">
+                <a href="#"
+                    class="flex items-center gap-3 px-4 py-3 bg-slate-800 text-white rounded-xl transition-colors">
+                    <i class="fa-solid fa-download text-blue-400"></i>
+                    <span class="font-medium">单个下载</span>
+                </a>
+
+                <button onclick="handleBatchClick()"
+                    class="w-full flex items-center justify-between px-4 py-3 text-slate-400 hover:text-white hover:bg-slate-800/50 rounded-xl transition-all group">
+                    <div class="flex items-center gap-3">
+                        <i class="fa-solid fa-layer-group group-hover:text-yellow-400 transition-colors"></i>
+                        <span>批量下载</span>
+                    </div>
+                </button>
+
+                <button onclick="showHistoryModal()"
+                    class="w-full flex items-center justify-between px-4 py-3 text-slate-400 hover:text-white hover:bg-slate-800/50 rounded-xl transition-all group">
+                    <div class="flex items-center gap-3">
+                        <i class="fa-solid fa-clock-rotate-left group-hover:text-green-400 transition-colors"></i>
+                        <span>下载历史</span>
+                    </div>
+                </button>
+            </nav>
+        </div>
+
+        <!-- 用户状态 -->
+        <div class="p-4 border-t border-slate-800">
+            <div class="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                <div class="flex items-center gap-3 mb-3">
+                    <div class="w-8 h-8 rounded-full bg-slate-600 flex items-center justify-center text-xs">User</div>
+                    <div>
+                        <div class="text-sm font-medium text-white">Free Plan</div>
+                        <div class="text-xs text-slate-400">本地下载</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- 2. 主内容区 (Main Content) -->
+    <main class="flex-1 flex flex-col bg-slate-950 relative">
+
+        <!-- 顶部输入栏 -->
+        <header
+            class="h-20 border-b border-slate-800 flex items-center px-8 justify-between bg-slate-900/50 backdrop-blur-md sticky top-0 z-10">
+            <div class="flex-1 max-w-3xl flex gap-4">
+                <div class="relative flex-1 group">
+                    <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                        <i
+                            class="fa-solid fa-link text-slate-500 group-focus-within:text-blue-400 transition-colors"></i>
+                    </div>
+                    <textarea id="urlInput" rows="1" placeholder="粘贴视频链接（每行一个，支持 YouTube/B站/抖音等 1000+ 网站）..."
+                        class="w-full bg-slate-800 text-white pl-10 pr-10 py-3 rounded-xl border border-slate-700 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all placeholder-slate-500 h-12 resize-none overflow-y-auto"></textarea>
+                    <button id="clearUrlBtn" type="button" onclick="clearUrlInput()"
+                        class="absolute inset-y-0 right-0 pr-4 hidden items-center text-slate-500 hover:text-slate-200 transition-colors"
+                        aria-label="清空输入">
+                        <i class="fa-solid fa-circle-xmark"></i>
+                    </button>
+                </div>
+                <button onclick="analyzeVideo()"
+                    class="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-xl font-medium transition-colors shadow-lg shadow-blue-900/20 flex items-center gap-2">
+                    <i class="fa-solid fa-magnifying-glass"></i> 解析
+                </button>
+            </div>
+
+            <div class="flex items-center gap-4">
+                <!-- 【修改点】 绑定 onclick 事件到 showSettingsModal -->
+                <button onclick="showSettingsModal()"
+                    class="w-10 h-10 rounded-full bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700 transition-colors flex items-center justify-center">
+                    <i class="fa-solid fa-gear"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- 内容区域 -->
+        <div class="flex-1 overflow-y-auto p-8">
+
+            <!-- 空状态 (默认显示) -->
+            <div id="emptyState" class="flex flex-col items-center justify-center h-full text-slate-500 space-y-4">
+                <div
+                    class="w-24 h-24 bg-slate-900 rounded-full flex items-center justify-center mb-4 border border-slate-800">
+                    <i class="fa-solid fa-cloud-arrow-down text-4xl text-slate-600"></i>
+                </div>
+                <h3 class="text-xl font-medium text-slate-300">准备好下载了吗？</h3>
+                <p class="text-sm max-w-md text-center">完美支持 YouTube, Bilibili, TikTok 及全球 1000+ 主流平台。
+                    支持最高 8K 原画、批量下载与并发加速（本地处理）。</p>
+            </div>
+
+            <!-- 解析结果列表 -->
+            <div id="resultsList" class="hidden fade-in max-w-4xl mx-auto space-y-6"></div>
+
+            <!-- 单个解析结果卡片模板 -->
+            <template id="resultCardTemplate">
+                <div class="result-card glass-panel rounded-2xl p-6 flex gap-6 items-start">
+                    <!-- 缩略图 -->
+                    <div class="w-64 aspect-video bg-slate-800 rounded-lg overflow-hidden relative group shadow-2xl">
+                        <img src="" alt="Thumbnail" role="button" tabindex="0"
+                            class="thumb-img w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity cursor-zoom-in">
+                        <div
+                            class="duration-badge absolute bottom-2 right-2 bg-black/80 px-2 py-1 rounded text-xs text-white font-mono">
+                            00:00</div>
+                    </div>
+
+                    <!-- 视频信息与选项 -->
+                    <div class="flex-1 min-w-0">
+                        <h2 class="video-title text-xl font-bold text-white mb-2 leading-tight line-clamp-2">-</h2>
+                        <div class="flex flex-wrap items-center gap-3 text-sm text-slate-400 mb-6">
+                            <span class="view-count flex items-center gap-1"><i class="fa-solid fa-eye"></i> -</span>
+                            <span>•</span>
+                            <span class="uploader-name flex items-center gap-1"><i class="fa-solid fa-user"></i> -</span>
+                            <!-- Site Indicator -->
+                            <span class="site-name-container hidden items-center gap-2 pl-3 border-l border-slate-700 ml-1">
+                                <i class="fa-solid fa-globe text-xs"></i>
+                                <span class="site-name-text font-medium text-slate-300"></span>
+                            </span>
+                        </div>
+
+                        <!-- 下载选项表格 -->
+                        <div class="format-table bg-slate-900/50 rounded-xl border border-slate-800 overflow-hidden">
+                            <!-- JS 动态渲染 -->
+                        </div>
+                    </div>
+                </div>
+            </template>
+
+            <!-- 下载队列展示（独立于解析结果，占满宽度） -->
+            <div id="downloadQueueSection" class="mt-8">
+                <h3 class="text-lg font-semibold text-white mb-4">下载队列</h3>
+                <div id="downloadQueue" class="space-y-3">
+                    <!-- 动态添加的任务会在这里 -->
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 3. 设置页面弹窗 (Settings Modal) -->
+    <div id="settingsModal"
+        class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center opacity-0 transition-opacity duration-300">
+        <div
+            class="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg p-6 shadow-2xl transform scale-95 transition-transform duration-300 flex flex-col max-h-[90vh] overflow-hidden">
+            <!-- 标题栏 -->
+            <div class="flex justify-between items-center mb-6 border-b border-slate-800 pb-4 flex-shrink-0">
+                <h3 class="text-xl font-bold text-white flex items-center gap-2">
+                    <i class="fa-solid fa-sliders text-blue-400"></i> 设置
+                </h3>
+                <button onclick="closeSettingsModal()" class="text-slate-400 hover:text-white transition-colors">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <!-- 设置表单 -->
+            <div class="space-y-5 flex-1 overflow-y-auto min-h-0">
+                <!-- 下载路径 -->
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-2">默认下载路径</label>
+                    <div class="flex gap-2">
+                        <input type="text" id="settingDownloadPath" readonly value="C:/Users/Downloads"
+                            class="flex-1 bg-slate-800 text-slate-300 px-4 py-2.5 rounded-xl border border-slate-700 text-sm focus:outline-none">
+                        <button onclick="selectDownloadFolder()"
+                            class="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2.5 rounded-xl text-sm transition-colors whitespace-nowrap">
+                            <i class="fa-regular fa-folder-open mr-1"></i> 浏览
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 自动创建文件夹 -->
+                <div
+                    class="flex items-center justify-between border border-slate-700/50 rounded-xl p-3 bg-slate-800/30">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 uppercase mb-1"
+                            for="settingCreateFolder">智能归档 (Smart Archive)</label>
+                        <div class="text-[10px] text-slate-400">自动创建视频标题文件夹，归档视频与封面</div>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="settingCreateFolder" class="sr-only peer">
+                        <div
+                            class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600">
+                        </div>
+                    </label>
+                </div>
+
+                <!-- 下载后自动转 MP4 -->
+                <div
+                    class="flex items-center justify-between border border-slate-700/50 rounded-xl p-3 bg-slate-800/30">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 uppercase mb-1"
+                            for="settingConvertMp4">下载后自动转为 MP4</label>
+                        <div class="text-[10px] text-slate-400">下载完成后自动尝试转封装/转码为 MP4（需要 FFmpeg）</div>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="settingConvertMp4" class="sr-only peer">
+                        <div
+                            class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600">
+                        </div>
+                    </label>
+                </div>
+
+                <!-- Cookie 管理面板 -->
+                <div class="bg-slate-800/50 rounded-xl border border-slate-700 p-4">
+                    <div class="flex justify-between items-center mb-3">
+                        <label class="block text-xs font-semibold text-slate-400 uppercase">Cookie (cookies.txt)
+                            按域名</label>
+                        <button onclick="showCookieGuideModal()"
+                            class="text-[10px] text-blue-400 hover:text-blue-300 hover:underline">如何获取?</button>
+                    </div>
+
+                    <div class="text-[10px] text-slate-500 leading-relaxed mb-3">
+                        用于抖音/TikTok 等需要新鲜 Cookie 的站点。按域名保存映射，下载时自动匹配。
+                    </div>
+
+                    <!-- Cookie 列表 -->
+                    <div id="cookieListContainer" class="space-y-2 mb-4 max-h-32 overflow-y-auto">
+                        <div class="text-xs text-slate-500 text-center py-2 italic" id="noCookieText">暂无配置
+                            Cookie，部分站点可能无法解析/下载。</div>
+                    </div>
+
+                    <!-- 添加区域 -->
+                    <div class="pt-2 border-t border-slate-700 space-y-2">
+                        <input type="text" id="cookieDomainInput"
+                            placeholder="输入域名或链接 (如 douyin.com 或 https://www.douyin.com/video/...)"
+                            class="w-full bg-slate-900 text-slate-300 text-xs px-3 py-2 rounded-lg border border-slate-600 focus:outline-none focus:border-blue-500 font-mono placeholder-slate-600" />
+                        <button onclick="importCookieForDomain()"
+                            class="w-full bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 hover:text-blue-300 text-xs px-3 py-2 rounded-lg transition-colors border border-blue-600/30 border-dashed flex items-center justify-center gap-1">
+                            <i class="fa-solid fa-file-arrow-up"></i> 选择 cookies.txt 并保存
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 并发设置 -->
+                <div>
+                    <div class="flex justify-between items-center mb-2">
+                        <label class="block text-xs font-semibold text-slate-500 uppercase">并发下载数 (Max Threads)</label>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <input type="range" id="settingThreads" min="1" max="16" value="1"
+                            class="flex-1 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                            oninput="document.getElementById('threadVal').innerText = this.value">
+                        <span id="threadVal" class="text-sm font-mono text-white w-6">1</span>
+                    </div>
+                    <p class="text-[10px] text-slate-500 mt-1">建议 1-16。并发越高占用越多带宽与 CPU。</p>
+                </div>
+
+                <!-- 代理设置 -->
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-2">HTTP 代理 (Proxy)</label>
+                    <input type="text" id="settingProxy" placeholder="http://127.0.0.1:7890"
+                        class="w-full bg-slate-800 text-white px-4 py-2.5 rounded-xl border border-slate-700 focus:border-blue-500 focus:outline-none transition-colors text-sm font-mono placeholder-slate-600">
+                </div>
+
+                <!-- 版本信息 -->
+                <div class="bg-slate-800/50 rounded-xl border border-slate-700 p-4">
+                    <div class="flex justify-between items-center mb-3">
+                        <label class="block text-xs font-semibold text-slate-400 uppercase">依赖组件版本</label>
+                        <button onclick="checkForUpdates()" id="checkUpdateBtn"
+                            class="text-[10px] text-blue-400 hover:text-blue-300 hover:underline">检查更新</button>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3 text-xs">
+                        <div class="bg-slate-900/50 rounded-lg p-2.5">
+                            <div class="text-slate-500 mb-1">yt-dlp</div>
+                            <div id="ytdlpVersionText" class="text-white font-mono">--</div>
+                        </div>
+                        <div class="bg-slate-900/50 rounded-lg p-2.5">
+                            <div class="text-slate-500 mb-1">FFmpeg</div>
+                            <div id="ffmpegVersionText" class="text-white font-mono">--</div>
+                        </div>
+                    </div>
+                    <div id="updateHintContainer" class="hidden mt-3 text-xs text-yellow-500 flex items-center gap-2">
+                        <i class="fa-solid fa-triangle-exclamation"></i>
+                        <span id="updateHintText">发现新版本</span>
+                        <button onclick="openUpdatePage()" class="text-blue-400 hover:underline ml-auto">前往下载 →</button>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- 底部按钮 -->
+            <div class="pt-6 mt-6 border-t border-slate-800 flex justify-between items-center flex-shrink-0">
+                <button onclick="copyDiagnosticInfo()"
+                    class="text-slate-400 hover:text-white text-xs transition-colors flex items-center gap-1.5">
+                    <i class="fa-solid fa-clipboard-question"></i> 复制诊断信息
+                </button>
+                <div class="flex gap-3">
+                    <button onclick="closeSettingsModal()"
+                        class="px-5 py-2.5 rounded-xl text-slate-400 hover:text-white text-sm font-medium transition-colors">
+                        取消
+                    </button>
+                    <button onclick="saveSettings()"
+                        class="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2.5 rounded-xl font-medium shadow-lg shadow-blue-900/20 transition-colors">
+                        保存配置
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 4. 批量下载弹窗 (Batch Download Modal) -->
+    <div id="batchModal"
+        class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center opacity-0 transition-opacity duration-300">
+        <div
+            class="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl p-6 shadow-2xl transform scale-95 transition-transform duration-300 flex flex-col max-h-[90vh]">
+            <!-- 标题栏 -->
+            <div class="flex justify-between items-center mb-6 border-b border-slate-800 pb-4 flex-shrink-0">
+                <h3 class="text-xl font-bold text-white flex items-center gap-2">
+                    <i class="fa-solid fa-layer-group text-yellow-500"></i> 批量下载
+                </h3>
+                <button onclick="closeBatchModal()" class="text-slate-400 hover:text-white transition-colors">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <!-- 内容 -->
+            <div class="space-y-5 flex-1 overflow-y-auto min-h-0">
+                <!-- URL 输入 -->
+                <div class="flex flex-col h-full">
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-2">视频链接 (每行一个)</label>
+                    <textarea id="batchUrls" placeholder="https://...\nhttps://..."
+                        class="w-full flex-1 bg-slate-800 text-white px-4 py-3 rounded-xl border border-slate-700 focus:border-yellow-500 focus:outline-none transition-colors text-sm font-mono placeholder-slate-600 min-h-[200px] resize-none"></textarea>
+                </div>
+
+                <!-- 格式选择 -->
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-2">下载格式</label>
+                    <select id="batchFormat"
+                        class="w-full bg-slate-800 text-white px-4 py-2.5 rounded-xl border border-slate-700 focus:border-yellow-500 focus:outline-none transition-colors text-sm appearance-none">
+                        <option value="best">最佳质量 (Best Video + Audio)</option>
+                        <option value="audio">仅音频 (Audio Only)</option>
+                        <option value="1080p">1080P MP4</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- 底部按钮 -->
+            <div class="pt-6 mt-6 border-t border-slate-800 flex justify-end gap-3 flex-shrink-0">
+                <button onclick="closeBatchModal()"
+                    class="px-5 py-2.5 rounded-xl text-slate-400 hover:text-white text-sm font-medium transition-colors">
+                    取消
+                </button>
+                <button onclick="startBatchDownload()"
+                    class="bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-500 hover:to-orange-500 text-white px-8 py-2.5 rounded-xl font-bold shadow-lg shadow-orange-900/20 transition-all transform hover:-translate-y-0.5">
+                    <i class="fa-solid fa-rocket mr-2"></i> 开始批量任务
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 5. 下载历史弹窗 (History Modal) -->
+    <div id="historyModal"
+        class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center opacity-0 transition-opacity duration-300">
+        <div
+            class="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl p-6 shadow-2xl transform scale-95 transition-transform duration-300 flex flex-col max-h-[85vh]">
+            <!-- 标题栏 -->
+            <div class="flex justify-between items-center mb-4 flex-shrink-0">
+                <h3 class="text-xl font-bold text-white flex items-center gap-2">
+                    <i class="fa-solid fa-clock-rotate-left text-green-400"></i> 下载历史
+                </h3>
+                <button onclick="closeHistoryModal()" class="text-slate-400 hover:text-white transition-colors">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <!-- 搜索框 -->
+            <div class="mb-4 flex-shrink-0">
+                <div class="relative">
+                    <i class="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"></i>
+                    <input type="text" id="historySearchInput" placeholder="搜索标题或 URL..."
+                        oninput="debounceHistorySearch()"
+                        class="w-full bg-slate-800 text-white pl-10 pr-4 py-2.5 rounded-xl border border-slate-700 focus:border-green-500 focus:outline-none text-sm placeholder-slate-500">
+                </div>
+            </div>
+
+            <!-- 历史列表 -->
+            <div id="historyListContainer" class="flex-1 overflow-y-auto min-h-0 space-y-2">
+                <div class="text-sm text-slate-500 text-center py-8" id="historyEmptyText">
+                    <i class="fa-solid fa-inbox text-3xl mb-2 block text-slate-600"></i>
+                    暂无下载记录
+                </div>
+            </div>
+
+            <!-- 底部操作 -->
+            <div class="pt-4 mt-4 border-t border-slate-800 flex justify-between items-center flex-shrink-0">
+                <button onclick="clearAllHistory()"
+                    class="text-slate-500 hover:text-red-400 text-xs transition-colors flex items-center gap-1">
+                    <i class="fa-solid fa-trash-can"></i> 清空历史
+                </button>
+                <button onclick="closeHistoryModal()"
+                    class="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-sm font-medium transition-colors">
+                    关闭
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 6. Cookie 获取指南弹窗 (Cookie Guide Modal) -->
+    <div id="cookieGuideModal"
+        class="fixed inset-0 bg-black/90 backdrop-blur-sm z-[60] hidden flex items-center justify-center opacity-0 transition-opacity duration-300">
+        <div
+            class="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl transform scale-95 transition-transform duration-300 relative">
+            <button onclick="closeCookieGuideModal()"
+                class="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors">
+                <i class="fa-solid fa-xmark text-lg"></i>
+            </button>
+
+            <h3 class="text-xl font-bold text-white mb-6 flex items-center gap-2">
+                <i class="fa-solid fa-cookie-bite text-yellow-500"></i> Cookie 获取指南
+            </h3>
+
+            <div class="space-y-6 relative">
+                <!-- Step 1 -->
+                <div class="flex gap-4">
+                    <div
+                        class="flex-shrink-0 w-8 h-8 rounded-full bg-blue-900/30 text-blue-400 flex items-center justify-center font-bold text-sm border border-blue-500/20 z-10 bg-slate-900">
+                        1</div>
+                    <div>
+                        <h4 class="text-sm font-bold text-slate-200 mb-1">安装浏览器扩展</h4>
+                        <p class="text-xs text-slate-400 leading-relaxed">
+                            推荐使用 Chrome/Edge 扩展 <span class="text-white font-mono bg-slate-800 px-1 rounded">Get
+                                cookies.txt LOCALLY</span>。
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Step 2 -->
+                <div class="flex gap-4">
+                    <div
+                        class="flex-shrink-0 w-8 h-8 rounded-full bg-blue-900/30 text-blue-400 flex items-center justify-center font-bold text-sm border border-blue-500/20 z-10 bg-slate-900">
+                        2</div>
+                    <div>
+                        <h4 class="text-sm font-bold text-slate-200 mb-1">登录目标网站</h4>
+                        <p class="text-xs text-slate-400 leading-relaxed">
+                            打开浏览器访问 Bilibili 或 YouTube，并确保已登录您的<span class="text-yellow-500">会员账号</span>。
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Step 3 -->
+                <div class="flex gap-4">
+                    <div
+                        class="flex-shrink-0 w-8 h-8 rounded-full bg-blue-900/30 text-blue-400 flex items-center justify-center font-bold text-sm border border-blue-500/20 z-10 bg-slate-900">
+                        3</div>
+                    <div>
+                        <h4 class="text-sm font-bold text-slate-200 mb-1">导出 Cookie 文件</h4>
+                        <p class="text-xs text-slate-400 leading-relaxed">
+                            点击扩展图标，选择 <span class="text-white">"Export"</span>，将生成的 txt 文件保存到电脑。
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Step 4 -->
+                <div class="flex gap-4">
+                    <div
+                        class="flex-shrink-0 w-8 h-8 rounded-full bg-blue-900/30 text-blue-400 flex items-center justify-center font-bold text-sm border border-blue-500/20 z-10 bg-slate-900">
+                        4</div>
+                    <div>
+                        <h4 class="text-sm font-bold text-slate-200 mb-1">导入 NebulaDL</h4>
+                        <p class="text-xs text-slate-400 leading-relaxed">
+                            回到本软件设置页，选择对应平台并导入刚才的 txt 文件。
+                        </p>
+                    </div>
+                </div>
+
+                <!-- 连接线 -->
+                <div class="absolute left-[22px] top-6 bottom-16 w-px bg-blue-900/50 -z-0"></div>
+            </div>
+
+            <div class="mt-8 pt-4 border-t border-slate-800">
+                <button onclick="closeCookieGuideModal()"
+                    class="w-full bg-slate-800 hover:bg-slate-700 text-white py-2.5 rounded-xl font-medium transition-colors text-sm">
+                    我明白了
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 7. 全局消息弹窗 (App Dialog) -->
+    <div id="appDialog"
+        class="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] hidden flex items-center justify-center opacity-0 transition-opacity duration-300">
+        <div id="appDialogContent"
+            class="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-sm p-6 shadow-2xl transform scale-95 transition-transform duration-300 flex flex-col relative overflow-hidden">
+
+            <!-- 装饰光效 -->
+            <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-purple-500 to-yellow-500">
+            </div>
+
+            <div class="text-center">
+                <!-- Icon -->
+                <div id="appDialogIcon"
+                    class="w-14 h-14 rounded-full bg-slate-800 flex items-center justify-center mx-auto mb-4 border border-slate-700 shadow-inner">
+                    <i class="fa-solid fa-circle-info text-2xl text-blue-400"></i>
+                </div>
+
+                <h3 id="appDialogTitle" class="text-lg font-bold text-white mb-2">提示</h3>
+
+                <!-- 可选中文本区域 -->
+                <div id="appDialogMessage"
+                    class="text-sm text-slate-300 mb-6 leading-relaxed select-text whitespace-pre-wrap break-words max-h-60 overflow-y-auto px-2">
+                    消息内容...
+                </div>
+            </div>
+
+            <!-- 按钮组 -->
+            <div class="grid grid-cols-2 gap-3">
+                <button onclick="copyAppDialogText()"
+                    class="py-2.5 rounded-xl border border-slate-700 text-slate-400 hover:text-white hover:bg-slate-800 transition-colors text-sm font-medium">
+                    <i class="fa-regular fa-copy mr-1"></i> 复制
+                </button>
+                <button onclick="closeAppDialog()"
+                    class="py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/20 transition-colors text-sm font-medium">
+                    确定
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cover Preview Modal -->
+    <div id="imagePreviewModal"
+        class="fixed inset-0 z-[120] hidden items-center justify-center opacity-0 transition-opacity duration-200">
+        <div class="absolute inset-0 bg-black/80" onclick="closeImagePreview()"></div>
+        <div class="relative w-[92vw] max-w-5xl max-h-[88vh]">
+            <button onclick="closeImagePreview()"
+                class="absolute -top-4 -right-4 w-10 h-10 rounded-full bg-slate-900 border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800 transition-colors shadow-xl flex items-center justify-center"
+                title="关闭">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+            <div class="bg-slate-900 border border-slate-700 rounded-2xl overflow-hidden shadow-2xl">
+                <img id="imagePreviewImg" src="" alt="Cover Preview" class="w-full h-full object-contain bg-black" />
+            </div>
+        </div>
+    </div>
+
+    <script src="js/app.js"></script>
+</body>
+
+</html>
