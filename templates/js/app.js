@@ -438,8 +438,9 @@ async function analyzeVideo() {
 
     try {
         if (resultsList) {
-            resultsList.innerHTML = '';
-            resultsList.classList.add('hidden');
+            // 不再清空，追加新卡片
+            // resultsList.innerHTML = '';
+            // resultsList.classList.add('hidden');
         }
 
         let okCount = 0;
@@ -501,8 +502,11 @@ async function analyzeVideo() {
                 resultsList.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }
         } else {
-            if (resultsList) resultsList.classList.add('hidden');
-            if (emptyState) emptyState.classList.remove('hidden');
+            // 如果解析失败，且当前没有任何卡片，才显示空状态
+            if (resultsList && resultsList.children.length === 0) {
+                resultsList.classList.add('hidden');
+                if (emptyState) emptyState.classList.remove('hidden');
+            }
             showAppDialog({ title: '解析失败', message: '没有解析出可用的视频信息，请检查链接或网络后重试', type: 'error' });
         }
     } catch (e) {
@@ -567,6 +571,27 @@ function renderVideo(data, root) {
     }
 
     renderFormats(Array.isArray(data.formats) ? data.formats : [], root, data);
+
+    // 添加关闭按钮到卡片右上角
+    if (!root.querySelector('.card-close-btn')) {
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'card-close-btn absolute top-3 right-3 w-8 h-8 rounded-full bg-slate-800/80 hover:bg-red-600 text-slate-400 hover:text-white transition-all flex items-center justify-center z-10';
+        closeBtn.title = '移除此卡片';
+        closeBtn.innerHTML = '<i class="fa-solid fa-xmark text-sm"></i>';
+        closeBtn.onclick = (e) => {
+            e.stopPropagation();
+            root.remove();
+            // 如果没有卡片了，显示空状态
+            const resultsList = document.getElementById('resultsList');
+            const emptyState = document.getElementById('emptyState');
+            if (resultsList && resultsList.children.length === 0) {
+                resultsList.classList.add('hidden');
+                if (emptyState) emptyState.classList.remove('hidden');
+            }
+        };
+        root.style.position = 'relative';
+        root.appendChild(closeBtn);
+    }
 }
 
 function renderFormats(formats, root, videoData) {
@@ -621,6 +646,7 @@ function renderFormats(formats, root, videoData) {
         btn.dataset.ext = ext;
         btn.dataset.url = String((videoData && videoData.url) ? videoData.url : '');
         btn.dataset.title = String((videoData && videoData.title) ? videoData.title : '');
+        btn.dataset.size = size;
         btn.onclick = (e) => handleFormatAction(e.currentTarget);
         actionCell.appendChild(btn);
 
@@ -690,10 +716,11 @@ async function handleFormatAction(btn) {
     const ext = String(btn.dataset.ext || '');
     const url = String(btn.dataset.url || '').trim();
     const title = String(btn.dataset.title || '');
-    await startDownload(url, title, formatId, label, ext, btn);
+    const size = String(btn.dataset.size || '');
+    await startDownload(url, title, formatId, label, ext, size, btn);
 }
 
-async function startDownload(videoUrl, videoTitle, formatId, label, ext, btnElement = null) {
+async function startDownload(videoUrl, videoTitle, formatId, label, ext, fileSize, btnElement = null) {
     // 1. Disable button immediately
     if (btnElement) {
         btnElement.disabled = true;
@@ -734,8 +761,8 @@ async function startDownload(videoUrl, videoTitle, formatId, label, ext, btnElem
             return;
         }
 
-        // Updated: Pass task_id
-        createQueueItem(videoTitle || '下载任务', label, ext, res.task_id);
+        // Updated: Pass task_id and file size
+        createQueueItem(videoTitle || '下载任务', label, ext, res.task_id, fileSize);
 
         if (btnElement) {
             btnElement.disabled = false;
@@ -757,7 +784,7 @@ async function startDownload(videoUrl, videoTitle, formatId, label, ext, btnElem
     }
 }
 
-function createQueueItem(title, label, ext, taskId) {
+function createQueueItem(title, label, ext, taskId, fileSize) {
     const queue = document.getElementById('downloadQueue');
     if (!queue) return;
 
@@ -769,6 +796,7 @@ function createQueueItem(title, label, ext, taskId) {
     const filename = `${title} [${label}].${(ext || 'mp4').toLowerCase()}`;
     const filenameEsc = _escapeHtml(filename);
     const labelEsc = _escapeHtml(label);
+    const sizeEsc = _escapeHtml(fileSize || '未知大小');
 
     // Safe fallback if taskId is undefined (shouldn't happen with new API)
     const safeTaskId = taskId || 'unknown';
@@ -783,6 +811,7 @@ function createQueueItem(title, label, ext, taskId) {
             </div>
             <div class="flex justify-between items-center mb-1">
                 <span class="text-xs text-slate-400 status-text truncate">${labelEsc} · 等待中...</span>
+                <span class="text-xs text-slate-500 file-size-text">${sizeEsc}</span>
             </div>
             <div class="w-full bg-slate-700 h-1.5 rounded-full overflow-hidden">
                 <div class="bg-blue-500 h-full rounded-full progress-bar" style="width: 0%"></div>

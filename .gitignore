@@ -1,3 +1,18 @@
 /dist
 /build
 /.agent
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.venv/
+env/
+venv/
+ENV/
+
+# IDEs
+.vscode/
+.idea/
