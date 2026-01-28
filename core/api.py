@@ -740,14 +740,14 @@ class JsApi:
         """批量下载：urls 可为 list 或换行分隔字符串"""
         if isinstance(urls, str):
             items = [u.strip() for u in urls.splitlines()]
-        elif isinstance(urls, list):
+        elif isinstance(urls, (list, tuple)):
             items = [str(u).strip() for u in urls]
         else:
             items = []
 
         items = [u for u in items if u]
         if not items:
-            return json.dumps({'success': False, 'error': '请输入至少一个有效链接'})
+            return json.dumps({'success': False, 'error': '请输入至少一个有效链接'}, ensure_ascii=False)
 
         tasks = []
         for u in items:

@@ -50,10 +50,21 @@ class VideoAnalyzer:
             ydl_opts_any: Any = ydl_opts
             with yt_dlp.YoutubeDL(ydl_opts_any) as ydl:
                 info = ydl.extract_info(url, download=False)
+
+                # Some URLs (e.g., bilibili multi-part/episodes) are treated as playlists.
+                # For now, pick the first entry so we can present concrete formats.
+                selected = info
+                try:
+                    if isinstance(info, dict) and info.get('_type') == 'playlist' and info.get('entries'):
+                        entries = list(info.get('entries') or [])
+                        if entries and isinstance(entries[0], dict):
+                            selected = entries[0]
+                except Exception:
+                    selected = info
                 
                 # 解析可用格式
                 formats = []
-                all_formats = list(info.get('formats') or [])
+                all_formats = list((selected or {}).get('formats') or [])
                 available_heights: set[int] = set()
                 has_audio = False
                 
@@ -67,7 +78,7 @@ class VideoAnalyzer:
                     if f.get('acodec') != 'none' and f.get('vcodec') == 'none':
                         has_audio = True
                 
-                duration = int(info.get('duration') or 0)
+                duration = int((selected or {}).get('duration') or 0)
 
                 # 构建格式列表：展示实际识别到的分辨率（<=1080 也全部展示）
                 afmt = _pick_best_audio_format(all_formats)
@@ -112,29 +123,44 @@ class VideoAnalyzer:
                         'is_pro': False
                     })
                 
-                view_count = int(info.get('view_count') or 0)
+                view_count = int((selected or {}).get('view_count') or 0)
 
                 site = (
-                    info.get('extractor_key')
-                    or info.get('extractor')
-                    or info.get('ie_key')
-                    or info.get('webpage_url_domain')
+                    (info.get('extractor_key') if isinstance(info, dict) else None)
+                    or (info.get('extractor') if isinstance(info, dict) else None)
+                    or (info.get('ie_key') if isinstance(info, dict) else None)
+                    or ((selected or {}).get('webpage_url_domain') if isinstance(selected, dict) else None)
+                    or ((selected or {}).get('extractor_key') if isinstance(selected, dict) else None)
                     or ''
                 )
                 site = str(site or '').strip()
 
+                chosen_url = url
+                try:
+                    if isinstance(selected, dict):
+                        chosen_url = (
+                            selected.get('webpage_url')
+                            or selected.get('original_url')
+                            or selected.get('url')
+                            or url
+                        )
+                except Exception:
+                    chosen_url = url
+
                 return {
                     'success': True,
                     'data': {
-                        'title': info.get('title', '未知标题'),
-                        'thumbnail': info.get('thumbnail', ''),
+                        'title': (selected or {}).get('title', '未知标题'),
+                        'thumbnail': (selected or {}).get('thumbnail', ''),
                         'duration': duration,
                         'duration_str': _format_duration(duration),
                         'view_count': _format_views(view_count),
-                        'uploader': info.get('uploader', '未知频道'),
+                        'uploader': (selected or {}).get('uploader', '未知频道'),
                         'site': site,
                         'formats': formats,
-                        'url': url
+                        'url': chosen_url,
+                        'is_playlist': bool(isinstance(info, dict) and info.get('_type') == 'playlist'),
+                        'playlist_count': (info.get('playlist_count') if isinstance(info, dict) else None),
                     }
                 }
                  
@@ -163,6 +189,21 @@ def _friendly_yt_dlp_error(action: str, raw_error: str) -> str:
     # Unsupported website / extractor.
     if 'unsupported url' in low:
         return f'{action}失败：该链接暂不支持（yt-dlp 不支持此网站/链接）。请更换为 yt-dlp 支持的网站链接。'
+
+    if 'requested format is not available' in low:
+        return (
+            f'{action}失败：所选清晰度/格式不可用。\n'
+            '可能原因：该视频本身不提供该清晰度、需要登录/大会员、或该链接是合集/多P页面导致格式列表不在当前页面。\n'
+            '建议：重新点击【解析】刷新可用清晰度后再下载；如果是 B 站多P/合集，可尝试在链接后加 `?p=1` 选择具体分P。'
+        )
+
+    # Empty download (often due to throttling, proxy issues, or unstable network)
+    if 'downloaded file is empty' in low or ('file is empty' in low and 'download' in low):
+        return (
+            f'{action}失败：下载到的文件为空。\n'
+            '可能原因：网络波动/被限流、代理不稳定、或并发过高导致分片请求被丢弃。\n'
+            '建议：降低【设置-并发数】（例如 1-2）、关闭或更换代理、稍后重试。'
+        )
 
     # Geo restriction.
     if (
@@ -442,6 +483,12 @@ class DownloadTask(threading.Thread):
                 'windowsfilenames': True,
                 'restrictfilenames': False,
                 'writethumbnail': self.write_thumbnail,
+                # Be more resilient in batch scenarios / flaky networks.
+                'retries': 5,
+                'fragment_retries': 5,
+                'file_access_retries': 3,
+                'extractor_retries': 3,
+                'socket_timeout': 30,
             }
 
             # Ensure cover thumbnails are saved as JPG when possible.

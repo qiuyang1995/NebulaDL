@@ -1375,7 +1375,7 @@ async function startBatchDownload() {
         return;
     }
 
-    const urls = text.split('\n').map(u => u.trim()).filter(u => u.length > 0);
+    const urls = _parseUrlsFromInput(text);
     if (urls.length === 0) {
         showAppDialog({ title: '提示', message: '未检测到有效链接', type: 'warning' });
         return;
