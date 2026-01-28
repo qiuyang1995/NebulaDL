@@ -164,6 +164,32 @@ def _friendly_yt_dlp_error(action: str, raw_error: str) -> str:
     if 'unsupported url' in low:
         return f'{action}失败：该链接暂不支持（yt-dlp 不支持此网站/链接）。请更换为 yt-dlp 支持的网站链接。'
 
+    # Geo restriction.
+    if (
+        'not made this video available in your country' in low
+        or 'this video is not available in your country' in low
+        or ('available in' in low and 'your country' in low)
+    ):
+        return (
+            f'{action}失败：该视频在你当前网络所在地区不可用（地区限制）。\n'
+            'Cookie 通常无法解决地区限制。\n'
+            '建议：使用 VPN/代理切换到可用地区的网络，或在【设置】中配置 HTTP 代理（例如 http://127.0.0.1:7890）后重试。'
+        )
+
+    # YouTube bot-check / login verification.
+    if (
+        "confirm you're not a bot" in low
+        or 'not a bot' in low
+    ):
+        return (
+            f'{action}失败：YouTube 要求验证“不是机器人/需要登录”。\n'
+            '建议：\n'
+            '1) 重新导出 youtube.com 的 cookies.txt（尽量使用无痕窗口登录后导出，导出后立刻使用）。\n'
+            '2) 在【设置】里为 youtube.com 导入 cookies.txt（本应用会自动把 youtu.be 短链归到 youtube.com）。\n'
+            '3) 若仍失败，可能是账号/网络触发风控；降低请求频率或更换网络/代理后再试。\n'
+            '参考：yt-dlp Wiki - cookies 与 YouTube cookies 导出说明。'
+        )
+
     # Common auth/permission-related errors (cookies often required).
     if 'fresh cookies' in low and ('needed' in low or 'are needed' in low):
         return (

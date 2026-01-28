@@ -74,17 +74,35 @@
                 transform: translateY(0);
             }
         }
+
+        /* 侧边区域滚动条优化 */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 10px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
     </style>
 </head>
 
 <body class="flex h-screen overflow-hidden">
 
     <!-- 1. 侧边导航栏 (Sidebar) -->
-    <aside class="w-64 bg-slate-900 border-r border-slate-800 flex flex-col justify-between">
-        <div>
+    <aside class="w-64 bg-slate-900 border-r border-slate-800 flex flex-col">
+        <div class="flex-1 flex flex-col min-h-0 overflow-hidden">
             <!-- Logo -->
             <div class="p-6 flex items-center gap-3">
-                <div class="w-8 h-8 bg-red-600 rounded-lg flex items-center justify-center">
+                <div class="w-8 h-8 bg-red-600 rounded-lg flex items-center justify-center flex-shrink-0">
                     <i class="fa-brands fa-youtube text-white text-lg"></i>
                 </div>
                 <span class="text-xl font-bold text-white tracking-tight">Nebula<span
@@ -92,29 +110,53 @@
             </div>
 
             <!-- 导航菜单 -->
-            <nav class="px-4 space-y-2 mt-4">
+            <nav class="px-4 space-y-1 mb-4 flex-shrink-0">
                 <a href="#"
-                    class="flex items-center gap-3 px-4 py-3 bg-slate-800 text-white rounded-xl transition-colors">
+                    class="flex items-center gap-3 px-4 py-2.5 bg-slate-800 text-white rounded-xl transition-colors">
                     <i class="fa-solid fa-download text-blue-400"></i>
-                    <span class="font-medium">单个下载</span>
+                    <span class="font-medium text-sm">单个下载</span>
                 </a>
 
                 <button onclick="handleBatchClick()"
-                    class="w-full flex items-center justify-between px-4 py-3 text-slate-400 hover:text-white hover:bg-slate-800/50 rounded-xl transition-all group">
+                    class="w-full flex items-center justify-between px-4 py-2.5 text-slate-400 hover:text-white hover:bg-slate-800/50 rounded-xl transition-all group">
                     <div class="flex items-center gap-3">
                         <i class="fa-solid fa-layer-group group-hover:text-yellow-400 transition-colors"></i>
-                        <span>批量下载</span>
+                        <span class="text-sm">批量下载</span>
                     </div>
                 </button>
 
                 <button onclick="showHistoryModal()"
-                    class="w-full flex items-center justify-between px-4 py-3 text-slate-400 hover:text-white hover:bg-slate-800/50 rounded-xl transition-all group">
+                    class="w-full flex items-center justify-between px-4 py-2.5 text-slate-400 hover:text-white hover:bg-slate-800/50 rounded-xl transition-all group">
                     <div class="flex items-center gap-3">
                         <i class="fa-solid fa-clock-rotate-left group-hover:text-green-400 transition-colors"></i>
-                        <span>下载历史</span>
+                        <span class="text-sm">下载历史</span>
+                    </div>
+                </button>
+
+                <button onclick="_scrollToQueue()"
+                    class="w-full flex items-center justify-between px-4 py-2.5 text-slate-400 hover:text-white hover:bg-slate-800/50 rounded-xl transition-all group">
+                    <div class="flex items-center gap-3">
+                        <i class="fa-solid fa-list-check group-hover:text-blue-400 transition-colors"></i>
+                        <span class="text-sm">任务管理</span>
                     </div>
                 </button>
             </nav>
+
+            <!-- 侧边栏下载队列 (Sidebar Queue) -->
+            <div class="px-4 flex-1 flex flex-col min-h-0 overflow-hidden border-t border-slate-800/50 pt-4">
+                <div class="flex items-center justify-between mb-3 px-2 flex-shrink-0">
+                    <h3 class="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                        <i class="fa-solid fa-spinner fa-spin text-blue-400 text-[10px]" id="sidebarQueueLoading"
+                            style="display:none"></i>
+                        下载队列
+                    </h3>
+                    <span id="queueCountBadge"
+                        class="hidden bg-slate-800 text-slate-400 text-[10px] px-1.5 py-0.5 rounded-full font-mono">0</span>
+                </div>
+                <div id="downloadQueueSidebar" class="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                    <!-- 动态任务项 -->
+                </div>
+            </div>
         </div>
 
         <!-- 用户状态 -->
@@ -201,9 +243,11 @@
                         <div class="flex flex-wrap items-center gap-3 text-sm text-slate-400 mb-6">
                             <span class="view-count flex items-center gap-1"><i class="fa-solid fa-eye"></i> -</span>
                             <span>•</span>
-                            <span class="uploader-name flex items-center gap-1"><i class="fa-solid fa-user"></i> -</span>
+                            <span class="uploader-name flex items-center gap-1"><i class="fa-solid fa-user"></i>
+                                -</span>
                             <!-- Site Indicator -->
-                            <span class="site-name-container hidden items-center gap-2 pl-3 border-l border-slate-700 ml-1">
+                            <span
+                                class="site-name-container hidden items-center gap-2 pl-3 border-l border-slate-700 ml-1">
                                 <i class="fa-solid fa-globe text-xs"></i>
                                 <span class="site-name-text font-medium text-slate-300"></span>
                             </span>
@@ -217,10 +261,17 @@
                 </div>
             </template>
 
-            <!-- 下载队列展示（独立于解析结果，占满宽度） -->
-            <div id="downloadQueueSection" class="mt-8">
-                <h3 class="text-lg font-semibold text-white mb-4">下载队列</h3>
-                <div id="downloadQueue" class="space-y-3">
+            <!-- 解析结果列表 -->
+            <div id="resultsList" class="hidden fade-in max-w-4xl mx-auto space-y-6"></div>
+
+            <!-- 下载队列展示 (主区域详情) -->
+            <div id="downloadQueueSection" class="mt-12 hidden border-t border-slate-800 pt-8">
+                <div class="flex items-center justify-between mb-6">
+                    <h3 class="text-xl font-bold text-white flex items-center gap-3">
+                        <i class="fa-solid fa-list-ul text-blue-500"></i> 下载管理
+                    </h3>
+                </div>
+                <div id="downloadQueueMain" class="space-y-4 max-w-4xl mx-auto">
                     <!-- 动态添加的任务会在这里 -->
                 </div>
             </div>

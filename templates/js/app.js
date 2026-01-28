@@ -352,8 +352,11 @@ function _escapeHtml(value) {
 }
 
 function _scrollToQueue() {
-    const section = document.getElementById('downloadQueueSection') || document.getElementById('downloadQueue');
+    const section = document.getElementById('downloadQueueSection');
     if (!section) return;
+
+    // 显示由于始终可见，主区域可能需要展示
+    section.classList.remove('hidden');
 
     const scroller = section.closest('.overflow-y-auto') || document.querySelector('main .overflow-y-auto');
     if (scroller && typeof scroller.scrollTo === 'function') {
@@ -361,10 +364,16 @@ function _scrollToQueue() {
         const srect = scroller.getBoundingClientRect();
         const top = scroller.scrollTop + (rect.top - srect.top) - 24;
         scroller.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
-        return;
+    } else {
+        section.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
-    section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // 侧边栏 Loading 提示
+    const indicator = document.getElementById('sidebarQueueLoading');
+    if (indicator) {
+        indicator.style.display = 'inline-block';
+        setTimeout(() => { indicator.style.display = 'none'; }, 2000);
+    }
 }
 
 window.addEventListener('pywebviewready', async function () {
@@ -443,6 +452,8 @@ async function analyzeVideo() {
             // resultsList.classList.add('hidden');
         }
 
+        const insertAnchor = resultsList ? resultsList.firstChild : null;
+
         let okCount = 0;
         for (let i = 0; i < urls.length; i++) {
             const url = urls[i];
@@ -490,7 +501,8 @@ async function analyzeVideo() {
             card.dataset.url = String(data && data.url ? data.url : url);
             card.dataset.title = String(data && data.title ? data.title : '');
 
-            resultsList.appendChild(card);
+            // Insert new cards at top, but keep the order within this batch.
+            resultsList.insertBefore(card, insertAnchor);
             renderVideo(data, card);
             okCount += 1;
         }
@@ -785,50 +797,85 @@ async function startDownload(videoUrl, videoTitle, formatId, label, ext, fileSiz
 }
 
 function createQueueItem(title, label, ext, taskId, fileSize) {
-    const queue = document.getElementById('downloadQueue');
-    if (!queue) return;
+    const sidebarQueue = document.getElementById('downloadQueueSidebar');
+    const mainQueue = document.getElementById('downloadQueueMain');
+    const mainSection = document.getElementById('downloadQueueSection');
+    if (!sidebarQueue || !mainQueue) return;
 
-    const item = document.createElement('div');
-    // Use ID for updates
-    item.id = 'task-' + taskId;
-    item.className = 'bg-slate-800/50 border border-slate-700 rounded-xl p-4 flex items-center gap-4 fade-in';
+    if (mainSection) mainSection.classList.remove('hidden');
 
     const filename = `${title} [${label}].${(ext || 'mp4').toLowerCase()}`;
     const filenameEsc = _escapeHtml(filename);
     const labelEsc = _escapeHtml(label);
-    const sizeEsc = _escapeHtml(fileSize || '未知大小');
-
-    // Safe fallback if taskId is undefined (shouldn't happen with new API)
+    const sizeEsc = _escapeHtml(fileSize || '');
     const safeTaskId = taskId || 'unknown';
+    // 对于 onclick 参数，需要转义单引号以防止 'foo'bar' 导致语法错误
+    const safeTaskIdJs = safeTaskId.replace(/'/g, "\\'");
 
-    item.innerHTML = `
+    // 1. 创建侧边栏紧凑版
+    const sidebarItem = document.createElement('div');
+    sidebarItem.id = `task-sidebar-${safeTaskId}`;
+    sidebarItem.className = 'bg-slate-800/40 border border-slate-700/50 rounded-lg p-3 flex flex-col gap-2 fade-in hover:bg-slate-800 transition-colors';
+    sidebarItem.innerHTML = `
+        <div class="flex items-start justify-between gap-2">
+            <div class="flex-1 min-w-0">
+                <div class="text-[11px] font-medium text-slate-200 truncate" title="${filenameEsc}">${filenameEsc}</div>
+                <div class="flex justify-between items-center text-[9px] mt-0.5">
+                    <span class="text-slate-500 status-text truncate">等待中...</span>
+                    <span class="text-slate-600 font-mono">${sizeEsc}</span>
+                </div>
+            </div>
+            <button onclick="cancelOrCloseQueueItem('${safeTaskIdJs}')"
+                class="w-5 h-5 rounded-md hover:bg-red-600/20 text-slate-500 hover:text-red-400 transition-colors flex items-center justify-center flex-shrink-0"
+                title="取消/移除">
+                <i class="fa-solid fa-xmark text-[10px]"></i>
+            </button>
+        </div>
+        <div class="w-full bg-slate-900 h-1 rounded-full overflow-hidden">
+            <div class="bg-blue-500 h-full rounded-full progress-bar transition-all duration-300" style="width: 0%"></div>
+        </div>
+        <div class="flex items-center justify-between gap-1 mt-0.5">
+            <div class="flex gap-1">
+                <button id="btn-pause-sidebar-${safeTaskId}" onclick="togglePause('${safeTaskIdJs}')"
+                    class="w-6 h-6 rounded bg-slate-700/50 hover:bg-slate-600 text-slate-400 hover:text-white transition-colors flex items-center justify-center"
+                    title="暂停/继续">
+                    <i class="fa-solid fa-pause text-[9px]"></i>
+                </button>
+            </div>
+            <div class="text-[9px] font-mono text-blue-400/80 progress-text">0%</div>
+        </div>
+    `;
+
+    // 2. 创建主区域详细版
+    const mainItem = document.createElement('div');
+    mainItem.id = `task-main-${safeTaskId}`;
+    mainItem.className = 'bg-slate-800/50 border border-slate-700 rounded-xl p-4 flex items-center gap-4 fade-in';
+    mainItem.innerHTML = `
         <div class="w-10 h-10 bg-blue-900/30 text-blue-400 rounded-lg flex items-center justify-center flex-shrink-0">
             <i class="fa-solid fa-video"></i>
         </div>
         <div class="flex-1 min-w-0 overflow-hidden">
-            <div class="mb-1">
-                <div class="text-sm font-medium text-white break-words line-clamp-2" title="${filenameEsc}">${filenameEsc}</div>
-            </div>
+            <div class="mb-1 text-sm font-medium text-white break-words line-clamp-2" title="${filenameEsc}">${filenameEsc}</div>
             <div class="flex justify-between items-center mb-1">
                 <span class="text-xs text-slate-400 status-text truncate">${labelEsc} · 等待中...</span>
-                <span class="text-xs text-slate-500 file-size-text">${sizeEsc}</span>
+                <span class="text-xs text-slate-500">${sizeEsc}</span>
             </div>
             <div class="w-full bg-slate-700 h-1.5 rounded-full overflow-hidden">
-                <div class="bg-blue-500 h-full rounded-full progress-bar" style="width: 0%"></div>
+                <div class="bg-blue-500 h-full rounded-full progress-bar transition-all duration-300" style="width: 0%"></div>
             </div>
         </div>
         <div class="flex items-center gap-1">
-            <button id="btn-retry-${safeTaskId}" onclick="retryTask('${safeTaskId}')"
+            <button id="btn-retry-main-${safeTaskId}" onclick="retryTask('${safeTaskIdJs}')"
                 class="hidden w-8 h-8 rounded-full hover:bg-slate-700 text-slate-500 hover:text-yellow-400 transition-colors flex items-center justify-center"
                 title="重试">
                 <i class="fa-solid fa-rotate-right text-xs"></i>
             </button>
-            <button id="btn-pause-${safeTaskId}" onclick="togglePause('${safeTaskId}')"
+            <button id="btn-pause-main-${safeTaskId}" onclick="togglePause('${safeTaskIdJs}')"
                 class="w-8 h-8 rounded-full hover:bg-slate-700 text-slate-500 hover:text-white transition-colors flex items-center justify-center"
                 title="暂停/继续">
                 <i class="fa-solid fa-pause text-xs"></i>
             </button>
-            <button onclick="cancelOrCloseQueueItem('${safeTaskId}')"
+            <button onclick="cancelOrCloseQueueItem('${safeTaskIdJs}')"
                 class="w-8 h-8 rounded-full hover:bg-slate-700 text-slate-500 hover:text-red-400 transition-colors flex items-center justify-center"
                 title="取消下载">
                 <i class="fa-solid fa-xmark text-xs"></i>
@@ -836,81 +883,92 @@ function createQueueItem(title, label, ext, taskId, fileSize) {
         </div>
     `;
 
-    // Removed manual onclick binding since we use inline onclick for clarity and closure capture
+    sidebarQueue.prepend(sidebarItem);
+    mainQueue.prepend(mainItem);
+    _updateQueueBadge();
+}
 
-
-    queue.prepend(item);
-    // currentQueueItem = item; // No longer used for single tracking
+function _updateQueueBadge() {
+    const queue = document.getElementById('downloadQueueSidebar');
+    const badge = document.getElementById('queueCountBadge');
+    if (!queue || !badge) return;
+    const count = queue.children.length;
+    badge.textContent = count;
+    badge.classList.toggle('hidden', count === 0);
 }
 
 function cancelOrCloseQueueItem(taskId) {
-    const item = document.getElementById('task-' + taskId);
-    if (!item) return;
+    const sItem = document.getElementById(`task-sidebar-${taskId}`);
+    const mItem = document.getElementById(`task-main-${taskId}`);
+    if (!sItem && !mItem) return;
 
-    const statusEl = item.querySelector('.status-text');
+    const statusEl = (sItem || mItem).querySelector('.status-text');
     const status = (statusEl && statusEl.textContent) ? statusEl.textContent.trim() : '';
-    // If task is already finished/cancelled/failed, close immediately.
+
     if (status.includes('下载完成') || status.includes('已取消') || status.includes('下载失败')) {
-        item.remove();
+        if (sItem) sItem.remove();
+        if (mItem) mItem.remove();
+        _updateQueueBadge();
         return;
     }
 
-    // Second click after cancellation closes/removes the queue card.
-    if (item.dataset.cancelled === '1') {
-        item.remove();
+    if ((sItem && sItem.dataset.cancelled === '1') || (mItem && mItem.dataset.cancelled === '1')) {
+        if (sItem) sItem.remove();
+        if (mItem) mItem.remove();
+        _updateQueueBadge();
         return;
     }
 
-    item.dataset.cancelled = '1';
+    if (sItem) sItem.dataset.cancelled = '1';
+    if (mItem) mItem.dataset.cancelled = '1';
     cancelDownload(taskId);
 }
 
 function updateProgress(taskId, percent, status) {
-    // Support both old signature (percent, status) and new (taskId, percent, status)
-    // If taskId is number or string looking like ID, use it. If it looks like percent (number), shift args.
-    // Actually, safest is to check if element exists.
+    const id = taskId;
+    const pNum = Number(percent);
+    const s = status || '';
 
-    let id = taskId;
-    let p = percent;
-    let s = status;
+    const items = [
+        document.getElementById(`task-sidebar-${id}`),
+        document.getElementById(`task-main-${id}`)
+    ].filter(Boolean);
 
-    // Handle legacy calls if any
-    if (typeof taskId === 'number' && typeof percent === 'string') {
-        // Old signature: updateProgress(percent, status)
-        // We can't identify the task easily unless we kept currentQueueItem.
-        // But prompt implies Python sends taskId now.
-        // Assuming new signature is strictly followed by Python.
-    }
+    if (items.length === 0) return;
 
-    const item = document.getElementById('task-' + id);
-    if (!item) return;
+    items.forEach(item => {
+        const bar = item.querySelector('.progress-bar');
+        const statusEl = item.querySelector('.status-text');
+        const progressTextEl = item.querySelector('.progress-text');
+        const isSidebar = item.id.includes('sidebar');
 
-    const bar = item.querySelector('.progress-bar');
-    const statusEl = item.querySelector('.status-text');
-    const pauseBtn = item.querySelector(`#btn-pause-${id}`);
-    const pauseIcon = pauseBtn ? pauseBtn.querySelector('i') : null;
+        // 使用 getElementById 避免特殊字符导致的选择器错误
+        const pauseBtn = document.getElementById(isSidebar ? `btn-pause-sidebar-${id}` : `btn-pause-main-${id}`);
+        const pauseIcon = pauseBtn ? pauseBtn.querySelector('i') : null;
 
-    const pNum = Number(p);
-    if (bar && !Number.isNaN(pNum) && pNum >= 0) {
-        bar.style.width = `${Math.max(0, Math.min(100, pNum))}%`;
-    }
-    if (statusEl) statusEl.textContent = s || '';
-
-    // Handle Pause/Resume UI state
-    if (s && (s.includes('Paused') || s.includes('暂停'))) {
-        if (pauseIcon) pauseIcon.className = 'fa-solid fa-play text-xs ml-0.5';
-        if (bar) {
-            bar.classList.remove('bg-blue-500', 'bg-green-500', 'bg-red-500');
-            bar.classList.add('bg-yellow-500');
+        if (bar && !Number.isNaN(pNum) && pNum >= 0) {
+            bar.style.width = `${Math.max(0, Math.min(100, pNum))}%`;
         }
-    } else {
-        // Default running state
-        if (pauseIcon) pauseIcon.className = 'fa-solid fa-pause text-xs';
-        if (bar && !bar.classList.contains('bg-green-500') && !bar.classList.contains('bg-red-500')) {
-            bar.classList.remove('bg-yellow-500');
-            bar.classList.add('bg-blue-500');
+        if (progressTextEl && !Number.isNaN(pNum)) {
+            progressTextEl.textContent = `${Math.round(pNum)}%`;
         }
-    }
+        if (statusEl) statusEl.textContent = s;
+
+        // Handle UI state based on status text
+        if (s.includes('Paused') || s.includes('暂停')) {
+            if (pauseIcon) pauseIcon.className = isSidebar ? 'fa-solid fa-download text-[9px]' : 'fa-solid fa-download text-xs';
+            if (bar) {
+                bar.classList.remove('bg-blue-500', 'bg-green-500', 'bg-red-500');
+                bar.classList.add('bg-yellow-500');
+            }
+        } else {
+            if (pauseIcon) pauseIcon.className = isSidebar ? 'fa-solid fa-pause text-[9px]' : 'fa-solid fa-pause text-xs';
+            if (bar && !bar.classList.contains('bg-green-500') && !bar.classList.contains('bg-red-500')) {
+                bar.classList.remove('bg-yellow-500');
+                bar.classList.add('bg-blue-500');
+            }
+        }
+    });
 }
 
 function _resetFormatButtonForTask(taskId) {
@@ -929,28 +987,30 @@ function _resetFormatButtonForTask(taskId) {
 function onDownloadComplete(taskId) {
     updateProgress(taskId, 100, '下载完成');
     _resetFormatButtonForTask(taskId);
-    const item = document.getElementById('task-' + taskId);
-    if (item) {
+
+    [document.getElementById(`task-sidebar-${taskId}`), document.getElementById(`task-main-${taskId}`)].forEach(item => {
+        if (!item) return;
         const bar = item.querySelector('.progress-bar');
         if (bar) {
             bar.classList.remove('bg-blue-500');
             bar.classList.add('bg-green-500');
         }
-        // 隐藏暂停按钮
-        const pauseBtn = item.querySelector(`#btn-pause-${taskId}`);
+        const pauseBtn = item.querySelector(item.id.includes('sidebar') ? `#btn-pause-sidebar-${taskId}` : `#btn-pause-main-${taskId}`);
         if (pauseBtn) pauseBtn.classList.add('hidden');
-    }
+    });
 }
 
 function onDownloadError(taskId, message) {
     updateProgress(taskId, 0, '下载失败');
     _resetFormatButtonForTask(taskId);
-    const item = document.getElementById('task-' + taskId);
-    if (item) {
-        const retryBtn = item.querySelector(`#btn-retry-${taskId}`);
+
+    [document.getElementById(`task-sidebar-${taskId}`), document.getElementById(`task-main-${taskId}`)].forEach(item => {
+        if (!item) return;
+        const isSidebar = item.id.includes('sidebar');
+        const retryBtn = item.querySelector(isSidebar ? `#btn-retry-sidebar-${taskId}` : `#btn-retry-main-${taskId}`);
         if (retryBtn) retryBtn.classList.remove('hidden');
 
-        const pauseBtn = item.querySelector(`#btn-pause-${taskId}`);
+        const pauseBtn = item.querySelector(isSidebar ? `#btn-pause-sidebar-${taskId}` : `#btn-pause-main-${taskId}`);
         if (pauseBtn) {
             pauseBtn.disabled = true;
             pauseBtn.classList.add('opacity-50', 'cursor-not-allowed');
@@ -967,7 +1027,7 @@ function onDownloadError(taskId, message) {
             bar.classList.add('bg-red-500');
             bar.style.width = '100%';
         }
-    }
+    });
 }
 
 async function retryTask(taskId) {
@@ -975,56 +1035,72 @@ async function retryTask(taskId) {
     if (!tid) return;
     if (!pywebviewReady || !_hasApi()) return;
 
-    const item = document.getElementById('task-' + tid);
-    if (!item) return;
+    const sItem = document.getElementById(`task-sidebar-${tid}`);
+    const mItem = document.getElementById(`task-main-${tid}`);
 
-    const retryBtn = item.querySelector(`#btn - retry - ${tid} `);
-    const pauseBtn = item.querySelector(`#btn - pause - ${tid} `);
-    const statusEl = item.querySelector('.status-text');
-    const bar = item.querySelector('.progress-bar');
+    const items = [sItem, mItem].filter(Boolean);
+    if (items.length === 0) return;
 
-    if (retryBtn) {
-        retryBtn.disabled = true;
-        retryBtn.classList.add('opacity-50', 'cursor-not-allowed');
-    }
+    items.forEach(item => {
+        const isSidebar = item.id.includes('sidebar');
+        const retryBtn = item.querySelector(isSidebar ? `#btn-retry-sidebar-${tid}` : `#btn-retry-main-${tid}`);
+        if (retryBtn) {
+            retryBtn.disabled = true;
+            retryBtn.classList.add('opacity-50', 'cursor-not-allowed');
+        }
+    });
 
     try {
         const raw = await window.pywebview.api.retry_download(tid);
         const res = _parseMaybeJson(raw);
         if (!res || !res.success) {
+            items.forEach(item => {
+                const isSidebar = item.id.includes('sidebar');
+                const retryBtn = item.querySelector(isSidebar ? `#btn-retry-sidebar-${tid}` : `#btn-retry-main-${tid}`);
+                if (retryBtn) {
+                    retryBtn.disabled = false;
+                    retryBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                }
+            });
+            return;
+        }
+
+        items.forEach(item => {
+            const isSidebar = item.id.includes('sidebar');
+            const retryBtn = item.querySelector(isSidebar ? `#btn-retry-sidebar-${tid}` : `#btn-retry-main-${tid}`);
+            const pauseBtn = item.querySelector(isSidebar ? `#btn-pause-sidebar-${tid}` : `#btn-pause-main-${tid}`);
+            const statusEl = item.querySelector('.status-text');
+            const bar = item.querySelector('.progress-bar');
+
+            if (retryBtn) {
+                retryBtn.classList.add('hidden');
+                retryBtn.disabled = false;
+                retryBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+            }
+            if (statusEl) {
+                statusEl.classList.remove('text-red-400');
+                statusEl.textContent = '等待中...';
+            }
+            if (bar) {
+                bar.classList.remove('bg-red-500', 'bg-green-500');
+                bar.classList.add('bg-blue-500');
+                bar.style.width = '0%';
+            }
+            if (pauseBtn) {
+                pauseBtn.disabled = false;
+                pauseBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                pauseBtn.classList.remove('hidden');
+            }
+        });
+    } catch {
+        items.forEach(item => {
+            const isSidebar = item.id.includes('sidebar');
+            const retryBtn = item.querySelector(isSidebar ? `#btn-retry-sidebar-${tid}` : `#btn-retry-main-${tid}`);
             if (retryBtn) {
                 retryBtn.disabled = false;
                 retryBtn.classList.remove('opacity-50', 'cursor-not-allowed');
             }
-            return;
-        }
-
-        if (retryBtn) {
-            retryBtn.classList.add('hidden');
-            retryBtn.disabled = false;
-            retryBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-        }
-
-        if (statusEl) {
-            statusEl.classList.remove('text-red-400');
-            statusEl.textContent = '等待中...';
-        }
-
-        if (bar) {
-            bar.classList.remove('bg-red-500', 'bg-green-500');
-            bar.classList.add('bg-blue-500');
-            bar.style.width = '0%';
-        }
-
-        if (pauseBtn) {
-            pauseBtn.disabled = false;
-            pauseBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-        }
-    } catch {
-        if (retryBtn) {
-            retryBtn.disabled = false;
-            retryBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-        }
+        });
     }
 }
 
@@ -1045,46 +1121,72 @@ async function togglePause(taskId) {
     if (!tid) return;
     if (!pywebviewReady || !_hasApi()) return;
 
-    const item = document.getElementById('task-' + tid);
-    const statusEl = item ? item.querySelector('.status-text') : null;
-    const status = statusEl ? String(statusEl.textContent || '') : '';
-    const pauseBtn = item ? item.querySelector(`#btn-pause-${tid}`) : null;
-    const pauseIcon = pauseBtn ? pauseBtn.querySelector('i') : null;
+    // 获取两个可能的任务项
+    const sItem = document.getElementById(`task-sidebar-${tid}`);
+    const mItem = document.getElementById(`task-main-${tid}`);
+    const items = [sItem, mItem].filter(Boolean);
 
+    if (items.length === 0) return;
+
+    // 判断当前状态
+    const firstStatusEl = items[0].querySelector('.status-text');
+    const currentStatus = firstStatusEl ? String(firstStatusEl.textContent || '') : '';
     const btn = taskButtons[tid];
 
-    // If currently paused -> resume.
-    if (status.includes('暂停')) {
-        // 立即更新图标
-        if (pauseIcon) pauseIcon.className = 'fa-solid fa-pause text-xs';
+    // 定义通用 UI 更新函数
+    const updateUiImmediate = (newStatusText, iconClass) => {
+        // 更新格式转换按钮（如果有）
+        if (btn) {
+            _setFormatButtonUi(btn, iconClass.includes('download') ? 'resume' : 'pause');
+        }
+
+        // 遍历更新所有存在的任务项（侧边栏+主区域）
+        items.forEach(item => {
+            const isSidebar = item.id.includes('sidebar');
+            const statusEl = item.querySelector('.status-text');
+            // 使用 getElementById 避免特殊字符导致的选择器错误
+            const pauseBtn = document.getElementById(isSidebar ? `btn-pause-sidebar-${tid}` : `btn-pause-main-${tid}`);
+            const icon = pauseBtn ? pauseBtn.querySelector('i') : null;
+
+            if (statusEl) statusEl.textContent = newStatusText;
+            if (icon) icon.className = iconClass + (isSidebar ? ' text-[9px]' : ' text-xs');
+
+            // 同步更新进度条颜色
+            const bar = item.querySelector('.progress-bar');
+            if (bar) {
+                if (newStatusText.includes('暂停')) {
+                    bar.classList.remove('bg-blue-500', 'bg-green-500', 'bg-red-500');
+                    bar.classList.add('bg-yellow-500');
+                } else {
+                    if (!bar.classList.contains('bg-green-500') && !bar.classList.contains('bg-red-500')) {
+                        bar.classList.remove('bg-yellow-500');
+                        bar.classList.add('bg-blue-500');
+                    }
+                }
+            }
+        });
+    };
+
+    // 执行逻辑：暂停或恢复
+    if (currentStatus.includes('暂停')) {
+        // 恢复下载
         try {
+            updateUiImmediate('等待中...', 'fa-solid fa-pause'); // 乐观更新
             const raw = await window.pywebview.api.resume_download(tid);
             const res = _parseMaybeJson(raw);
-            if (res && res.success) {
-                if (btn) _setFormatButtonUi(btn, 'pause');
-                updateProgress(tid, -1, '等待中...');
-            }
+            // 这里可以添加回滚逻辑，但在大多数 UI 交互中乐观更新体验更好
         } catch {
             // ignore
         }
-        return;
-    }
-
-    // Otherwise pause - 立即更新图标
-    if (pauseIcon) pauseIcon.className = 'fa-solid fa-play text-xs';
-    try {
-        const raw = await window.pywebview.api.pause_download(tid);
-        const res = _parseMaybeJson(raw);
-        if (res && res.success) {
-            if (btn) _setFormatButtonUi(btn, 'resume');
-            updateProgress(tid, -1, '暂停');
-        } else {
-            // 如果失败，恢复图标
-            if (pauseIcon) pauseIcon.className = 'fa-solid fa-pause text-xs';
+    } else {
+        // 暂停下载
+        try {
+            updateUiImmediate('暂停', 'fa-solid fa-download'); // 乐观更新
+            const raw = await window.pywebview.api.pause_download(tid);
+            const res = _parseMaybeJson(raw);
+        } catch {
+            // ignore
         }
-    } catch {
-        // 如果出错，恢复图标
-        if (pauseIcon) pauseIcon.className = 'fa-solid fa-pause text-xs';
     }
 }
 
@@ -1113,11 +1215,11 @@ function renderCookieList() {
         const pathEsc = _escapeHtml(path);
 
         row.innerHTML = `
-        < div class="flex items-center gap-2 overflow-hidden" >
-                <i class="fa-solid fa-cookie-bite text-yellow-500 w-4 text-center"></i>
-                <span class="font-medium text-slate-300 font-mono truncate max-w-[160px]" title="${domainEsc}">${domainEsc}</span>
-                <span class="text-slate-500 truncate max-w-[120px] ml-1" title="${pathEsc}">${fileNameEsc}</span>
-            </div >
+        <div class="flex items-center gap-2 overflow-hidden">
+            <i class="fa-solid fa-cookie-bite text-yellow-500 w-4 text-center"></i>
+            <span class="font-medium text-slate-300 font-mono truncate max-w-[160px]" title="${domainEsc}">${domainEsc}</span>
+            <span class="text-slate-500 truncate max-w-[120px] ml-1" title="${pathEsc}">${fileNameEsc}</span>
+        </div>
         <button onclick="removeCookieMapping('${domainEsc}')" class="text-slate-500 hover:text-red-400 transition-colors px-1">
             <i class="fa-solid fa-trash"></i>
         </button>
@@ -1178,7 +1280,18 @@ async function importCookieForDomain() {
 
         if (input) input.value = '';
         await refreshCookieMappings();
-        showAppDialog({ title: '成功', message: 'Cookie 已保存', type: 'success' });
+        const domain = setRes && setRes.domain ? String(setRes.domain) : '';
+        const count = (setRes && typeof setRes.cookie_count === 'number') ? setRes.cookie_count : null;
+        const mtime = setRes && setRes.cookie_mtime ? String(setRes.cookie_mtime) : '';
+        const warning = setRes && setRes.warning ? String(setRes.warning) : '';
+
+        let msg = 'Cookie 已保存';
+        if (domain) msg += `\n域名: ${domain}`;
+        if (count !== null) msg += `\n检测到 Cookie 条数: ${count}`;
+        if (mtime) msg += `\n文件更新时间: ${mtime}`;
+        if (warning) msg += `\n\n${warning}`;
+
+        showAppDialog({ title: '成功', message: msg, type: 'success' });
     } catch (e) {
         showAppDialog({ title: '保存失败', message: (e && e.message ? e.message : String(e)), type: 'error' });
     }
@@ -1394,7 +1507,13 @@ async function saveSettings() {
             create_folder: createFolder,
             convert_mp4: convertMp4,
         };
-        await window.pywebview.api.save_settings(data);
+        const raw = await window.pywebview.api.save_settings(data);
+        const res = _parseMaybeJson(raw);
+        if (!res || !res.success) {
+            showAppDialog({ title: '保存失败', message: (res && res.error) ? String(res.error) : '保存失败', type: 'error' });
+            return;
+        }
+
         closeSettingsModal();
         showAppDialog({ title: '成功', message: '设置已保存', type: 'success' });
     } catch (e) {

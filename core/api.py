@@ -7,12 +7,140 @@ import json
 import uuid
 import threading
 import queue
+import time
+import socket
 from typing import Optional, Any
 from urllib.parse import urlparse
 
 import webview
 from .downloader import VideoAnalyzer, DownloadTask
 from .history import download_history
+
+
+def _parse_netscape_cookies_file(cookie_path: str) -> tuple[int, set[str]]:
+    """Best-effort parse for Netscape cookies.txt.
+
+    Returns:
+        (cookie_count, domains)
+    """
+
+    try:
+        with open(cookie_path, 'r', encoding='utf-8-sig', errors='replace') as f:
+            lines = f.read().splitlines()
+    except Exception:
+        return (0, set())
+
+    domains: set[str] = set()
+    count = 0
+
+    for line in lines:
+        s = (line or '').strip()
+        if not s:
+            continue
+
+        # Keep '#HttpOnly_' lines (real cookies), skip other comments.
+        if s.startswith('#') and not s.startswith('#HttpOnly_'):
+            continue
+
+        parts = s.split('\t')
+        if len(parts) < 7:
+            continue
+
+        dom = (parts[0] or '').strip()
+        if dom.startswith('#HttpOnly_'):
+            dom = dom[len('#HttpOnly_'):]
+        dom = dom.lstrip('.').strip().lower()
+        if not dom:
+            continue
+
+        count += 1
+        domains.add(dom)
+
+    return (count, domains)
+
+
+def _cookies_match_domain(cookie_domains: set[str], target_domain: str) -> bool:
+    d = (target_domain or '').strip().lower().lstrip('.')
+    if not d or not cookie_domains:
+        return False
+
+    # direct
+    if d in cookie_domains:
+        return True
+
+    # cookie has subdomain (e.g. www.douyin.com) while target is douyin.com
+    for cd in cookie_domains:
+        if cd.endswith('.' + d):
+            return True
+
+    # target is subdomain while cookie is base domain
+    for cd in cookie_domains:
+        if d.endswith('.' + cd):
+            return True
+
+    return False
+
+
+def _cookies_match_any(cookie_domains: set[str], targets: list[str]) -> bool:
+    for t in targets:
+        if _cookies_match_domain(cookie_domains, t):
+            return True
+    return False
+
+
+def _normalize_and_validate_proxy(raw: str) -> tuple[str, str]:
+    """Validate proxy for yt-dlp.
+
+    Returns:
+        (normalized_proxy, error_message)
+        error_message is '' when ok.
+    """
+
+    v = (raw or '').strip()
+    if not v:
+        return ('', '')
+
+    # Allow user to omit scheme, default to http.
+    if '://' not in v:
+        v = 'http://' + v
+
+    try:
+        u = urlparse(v)
+    except Exception:
+        return ('', '代理地址格式不正确')
+
+    scheme = (u.scheme or '').strip().lower()
+    host = (u.hostname or '').strip()
+    port = u.port
+
+    allowed = {'http', 'https', 'socks4', 'socks4a', 'socks5', 'socks5h'}
+    if scheme not in allowed:
+        return ('', f'代理协议不支持：{scheme}（支持: http/https/socks5）')
+    if not host:
+        return ('', '代理地址缺少主机名')
+    if not port:
+        return ('', '代理地址缺少端口')
+
+    # Basic TCP connectivity check.
+    try:
+        sock = socket.create_connection((host, int(port)), timeout=1.5)
+        sock.close()
+    except Exception:
+        hint = '请确认代理软件已开启、地址与端口正确。'
+        if host in ('127.0.0.1', 'localhost'):
+            hint += '（例如 Clash 常见 HTTP 端口 7890，SOCKS5 端口 7891）'
+        return ('', f'无法连接到代理 {host}:{port}。{hint}')
+
+    # Rebuild normalized proxy (preserve path/auth if present).
+    # urlparse keeps username/password separately.
+    auth = ''
+    if u.username:
+        auth = u.username
+        if u.password:
+            auth += ':' + u.password
+        auth += '@'
+
+    return (f'{scheme}://{auth}{host}:{int(port)}', '')
 
 
 class JsApi:
@@ -97,6 +225,12 @@ class JsApi:
         host = host.strip('.')
         if host.startswith('www.'):
             host = host[4:]
+
+        # Domain aliases (normalize to the site where cookies are actually set).
+        if host == 'youtu.be':
+            host = 'youtube.com'
+        elif host.endswith('youtube-nocookie.com'):
+            host = 'youtube.com'
         return host
 
     def _cookiefile_for_url(self, url: str) -> Optional[str]:
@@ -149,9 +283,74 @@ class JsApi:
         if not cookie_path or not os.path.isfile(cookie_path):
             return json.dumps({'success': False, 'error': 'Cookie 文件不存在'}, ensure_ascii=False)
 
+        cookie_count, cookie_domains = _parse_netscape_cookies_file(cookie_path)
+        if cookie_count <= 0:
+            return json.dumps(
+                {
+                    'success': False,
+                    'error': (
+                        'Cookie 文件格式不正确：未识别到有效 cookies.txt（Netscape 格式）。\n'
+                        '请使用浏览器扩展导出 cookies.txt（文件首行通常为: # Netscape HTTP Cookie File）后重试。'
+                    ),
+                },
+                ensure_ascii=False,
+            )
+
+        warning = ''
+
+        # YouTube frequently needs both youtube.com + google.com cookies.
+        # Some exports may omit youtube.com cookies but still include google.com.
+        if domain == 'youtube.com':
+            if not _cookies_match_any(cookie_domains, ['youtube.com', 'google.com']):
+                return json.dumps(
+                    {
+                        'success': False,
+                        'error': (
+                            'Cookie 文件中未检测到与 youtube.com / google.com 相关的 Cookie。\n'
+                            '请确认你是在浏览器中打开并通过验证/登录 YouTube 后导出的 cookies.txt。'
+                        ),
+                        'domain': domain,
+                        'cookie_count': cookie_count,
+                    },
+                    ensure_ascii=False,
+                )
+
+            if not _cookies_match_domain(cookie_domains, 'youtube.com'):
+                warning = '提示：未检测到 youtube.com Cookie（仅检测到 google.com 相关 Cookie），可能仍会触发“需要登录/不是机器人”验证。'
+        elif not _cookies_match_domain(cookie_domains, domain):
+            return json.dumps(
+                {
+                    'success': False,
+                    'error': (
+                        f'Cookie 文件中未检测到与 {domain} 相关的 Cookie。\n'
+                        '请确认你是在访问并登录/加载该网站后导出的 cookies.txt，或将域名输入为实际访问的域名后重试。'
+                    ),
+                    'domain': domain,
+                    'cookie_count': cookie_count,
+                },
+                ensure_ascii=False,
+            )
+
         self._cookie_map[domain] = cookie_path
         self._save_cookie_map()
-        return json.dumps({'success': True, 'domain': domain, 'path': cookie_path}, ensure_ascii=False)
+
+        try:
+            mtime = os.path.getmtime(cookie_path)
+            mtime_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(mtime))
+        except Exception:
+            mtime_str = ''
+
+        return json.dumps(
+            {
+                'success': True,
+                'domain': domain,
+                'path': cookie_path,
+                'cookie_count': cookie_count,
+                'cookie_mtime': mtime_str,
+                'warning': warning,
+            },
+            ensure_ascii=False,
+        )
 
     def remove_cookie_mapping(self, domain_or_url: str) -> str:
         domain = self._extract_domain(domain_or_url)
@@ -754,7 +953,10 @@ class JsApi:
 
         proxy = data.get('proxy')
         if isinstance(proxy, str):
-            self._settings['proxy'] = proxy.strip()
+            normalized_proxy, proxy_err = _normalize_and_validate_proxy(proxy)
+            if proxy_err:
+                return json.dumps({'success': False, 'error': proxy_err}, ensure_ascii=False)
+            self._settings['proxy'] = normalized_proxy
 
         threads = data.get('threads')
         try:
@@ -781,7 +983,7 @@ class JsApi:
         with self._cond:
             self._cond.notify_all()
 
-        return json.dumps({'success': True})
+        return json.dumps({'success': True}, ensure_ascii=False)
 
     def choose_directory(self) -> str:
         """打开文件夹选择对话框，返回路径字符串（供前端直接赋值）"""
